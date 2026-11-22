@@ -442,7 +442,10 @@ struct ApplyWallpaperView: View {
                 if model.busy { ProgressView("正在处理，请保持应用在前台…") }
             }
             if let completed, completed > 0 {
-                InlineWallpaperRefresh()
+                Section {
+                    Text("壁纸已写入。点「注销」会重启系统界面，返回桌面后重新连接车机，新图才会显示。也可以先不注销，稍后手动重启 iPhone。")
+                    WallpaperRefreshButton(title: "注销", systemImage: "power")
+                }
             }
             if !finished {
                 if !model.targets.isEmpty {
@@ -465,11 +468,9 @@ struct ApplyWallpaperView: View {
                 }
                 ForEach(targetFamilies(model.targets)) { family in
                     Section(family.title) {
-                        HStack(alignment: .top, spacing: 12) {
-                            variantPreview("深色", family: family)
-                            variantPreview("浅色", family: family)
-                        }
-                        writeButtons(family)
+                        familyCard(family)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                            .listRowBackground(Color.clear)
                     }
                 }
             }
@@ -536,50 +537,71 @@ struct ApplyWallpaperView: View {
         return nil
     }
 
-    private func variantPreview(_ mode: String, family: TargetFamily) -> some View {
-        VStack(spacing: 6) {
-            if let target = family.targets.first(where: { $0.mode == mode && $0.editable }) {
-                ApplyTargetPreview(target: target)
-                    .frame(maxWidth: .infinity).frame(height: 95)
-                    .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
-                    .clipped()
-            } else {
-                Label("暂无预览", systemImage: "photo")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity).frame(height: 95)
-                    .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
-            }
-            Text(mode).font(.caption).foregroundStyle(.secondary)
-        }.frame(maxWidth: .infinity)
-    }
-
-    private func writeButtons(_ family: TargetFamily) -> some View {
+    private func familyCard(_ family: TargetFamily) -> some View {
         let dark = writableTarget("深色", in: family)
         let light = writableTarget("浅色", in: family)
-        return Group {
-            HStack(spacing: 10) {
-                Button("写入深色壁纸") {
-                    if let dark { choose([dark], name: family.title) }
-                }.frame(maxWidth: .infinity).disabled(model.busy || dark == nil)
-                Button("写入浅色壁纸") {
-                    if let light { choose([light], name: family.title) }
-                }.frame(maxWidth: .infinity).disabled(model.busy || light == nil)
-            }.buttonStyle(.bordered).controlSize(.small)
-            Button("同时写入深色和浅色壁纸") {
+        return VStack(spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                modeCard("深色", family: family, writable: dark)
+                modeCard("浅色", family: family, writable: light)
+            }
+            Button {
                 if let dark, let light { choose([dark, light], name: family.title) }
-            }.frame(maxWidth: .infinity).buttonStyle(.borderedProminent)
-                .disabled(model.busy || dark == nil || light == nil)
-            ForEach(["深色", "浅色"], id: \.self) { mode in
-                if let reason = unavailableReason(mode, in: family) {
-                    Text(reason).font(.caption).foregroundStyle(.secondary)
-                    if let target = family.targets.first(where: { $0.mode == mode && $0.repairable }) {
-                        Button("补回\(mode)文件") { repairTargets = [target]; confirmRepair = true }
-                            .disabled(model.busy)
-                    }
+            } label: {
+                Text("同时写入深色和浅色")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 36)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(CanvasTheme.accent)
+            .disabled(model.busy || dark == nil || light == nil)
+        }
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func modeCard(_ mode: String, family: TargetFamily, writable: WallpaperTarget?) -> some View {
+        let target = family.targets.first(where: { $0.mode == mode && $0.editable })
+            ?? family.targets.first(where: { $0.mode == mode })
+        return VStack(spacing: 7) {
+            if let target {
+                ApplyTargetPreview(target: target)
+            } else {
+                RoundedRectangle(cornerRadius: 9)
+                    .fill(Color(uiColor: .tertiarySystemFill))
+                    .overlay { Image(systemName: "photo").foregroundStyle(.secondary) }
+                    .frame(height: 80)
+            }
+            Text(mode)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button {
+                if let writable { choose([writable], name: family.title) }
+            } label: {
+                Text("写入\(mode)")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 32)
+            }
+            .buttonStyle(.bordered)
+            .tint(CanvasTheme.accent)
+            .disabled(model.busy || writable == nil)
+            if let reason = unavailableReason(mode, in: family) {
+                Text(reason)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let repair = family.targets.first(where: { $0.mode == mode && $0.repairable }) {
+                    Button("补回\(mode)") { repairTargets = [repair]; confirmRepair = true }
+                        .font(.caption)
+                        .disabled(model.busy)
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .top)
     }
+
 }
 
 private struct ApplyTargetPreview: View {
@@ -587,12 +609,27 @@ private struct ApplyTargetPreview: View {
     @State private var image: UIImage?
 
     var body: some View {
-        Group {
-            if let image { Image(uiImage: image).resizable().scaledToFit() }
-            else { Label("现有壁纸预览", systemImage: "photo").font(.caption).foregroundStyle(.secondary) }
+        GeometryReader { geometry in
+            Group {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                } else {
+                    Image(systemName: "photo")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                }
+            }
         }
-        .frame(maxHeight: 120)
+        .frame(height: 80)
+        .frame(maxWidth: .infinity)
+        .background(Color(uiColor: .tertiarySystemFill))
+        .clipShape(RoundedRectangle(cornerRadius: 9))
         .task(id: target.id) {
+            image = nil
             let path = target.id
             let preview = await Task.detached { CCEngine.preview(path) }.value
             if !Task.isCancelled { image = preview }
