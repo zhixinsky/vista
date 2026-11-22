@@ -486,10 +486,10 @@ struct ApplyWallpaperView: View {
                 NavigationStack {
                     List {
                         if let entry = entries.first, let image = UIImage(contentsOfFile: entry.preview.path) {
-                            Section("新壁纸") { Image(uiImage: image).resizable().scaledToFit() }
+                            Section("新壁纸") { ApplyImagePreview(image: image, height: 150) }
                         }
                         Section("将替换「\(targetName)」") {
-                            if let target = selected.first { ApplyTargetPreview(target: target) }
+                            if let target = selected.first { ApplyTargetPreview(target: target, height: 150) }
                             Text(selected.map(\.mode).joined(separator: "、"))
                             Text("应用前会自动备份原壁纸。").font(.footnote).foregroundStyle(.secondary)
                         }
@@ -571,10 +571,6 @@ struct ApplyWallpaperView: View {
         return VStack(spacing: 5) {
             if let target {
                 ApplyTargetPreview(target: target)
-                    .frame(height: 80)
-                    .frame(maxWidth: .infinity)
-                    .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(uiColor: .tertiarySystemFill))
@@ -612,20 +608,50 @@ struct ApplyWallpaperView: View {
 
 }
 
+private struct ApplyImagePreview: View {
+    let image: UIImage?
+    var height: CGFloat = 68
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .blur(radius: 12)
+                        .scaleEffect(1.15)
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                } else {
+                    Color(uiColor: .tertiarySystemFill)
+                    Image(systemName: "photo")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+        }
+        .frame(height: height)
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
 private struct ApplyTargetPreview: View {
     let target: WallpaperTarget
+    var height: CGFloat = 80
     @State private var image: UIImage?
 
     var body: some View {
-        Group {
-            if let image { GeometryReader { geometry in
-                Image(uiImage: image).resizable().scaledToFit()
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-            } }
-            else { Label("现有壁纸预览", systemImage: "photo").font(.caption).foregroundStyle(.secondary) }
-        }
-        .frame(maxHeight: 120)
+        ApplyImagePreview(image: image, height: height)
         .task(id: target.id) {
+            image = nil
             let path = target.id
             let preview = await Task.detached(priority: .utility) { () -> UIImage? in
                 guard let full = CCEngine.preview(path), let source = full.cgImage else { return nil }
@@ -736,7 +762,7 @@ struct CanvasSettingsView: View {
             }
             Section {
                 Button { guide = true } label: { Label("使用指南", systemImage: "book") }
-                NavigationLink { SupportedDevicesView() } label: { Label("支持机型", systemImage: "iphone") }
+                NavigationLink { SupportedVersionsView() } label: { Label("支持系统版本", systemImage: "iphone") }
                 NavigationLink { BackupsView() } label: { Label("备份与恢复", systemImage: "arrow.uturn.backward") }
                 NavigationLink { HelpView() } label: { Label("安装检查与诊断", systemImage: "stethoscope") }
             }
@@ -766,6 +792,7 @@ struct CanvasSettingsView: View {
 
 struct CompatibilityFeed: Decodable {
     let items: [CompatibleDevice]
+    let versions: [String]?
 }
 
 struct CompatibleDevice: Decodable, Identifiable {
@@ -775,8 +802,8 @@ struct CompatibleDevice: Decodable, Identifiable {
     let system: String
 }
 
-private struct SupportedDevicesView: View {
-    @State private var items: [CompatibleDevice] = []
+private struct SupportedVersionsView: View {
+    @State private var versions: [String] = []
     @State private var loading = false
     @State private var failed = false
     var body: some View {
@@ -785,8 +812,8 @@ private struct SupportedDevicesView: View {
                 Text("理论上支持 iOS 26.0–27.3 Beta 1")
             }
             Section("已有成功记录") {
-                ForEach(items) { item in
-                    LabeledContent(item.name, value: item.system)
+                ForEach(versions, id: \.self) { version in
+                    Text(version)
                 }
                 if loading { ProgressView() }
                 if failed {
@@ -794,7 +821,7 @@ private struct SupportedDevicesView: View {
                 }
             }
         }
-        .navigationTitle("支持机型")
+        .navigationTitle("支持系统版本")
         .navigationBarTitleDisplayMode(.inline)
         .task { await reload() }
         .refreshable { await reload() }
@@ -805,7 +832,10 @@ private struct SupportedDevicesView: View {
         loading = true
         failed = false
         defer { loading = false }
-        do { items = try await ServiceClient.shared.compatibility().items }
+        do {
+            let feed = try await ServiceClient.shared.compatibility()
+            versions = feed.versions ?? Array(Set(feed.items.map(\.system))).sorted(by: >)
+        }
         catch { failed = true }
     }
 }
