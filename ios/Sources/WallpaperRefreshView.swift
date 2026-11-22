@@ -10,25 +10,31 @@ struct WallpaperRefreshButton: View {
     @StateObject private var controller = RespringController()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             Button {
                 controller.start()
             } label: {
-                Label(controller.active ? "正在刷新…" : (title == "注销" ? "注销并刷新" : title),
-                      systemImage: systemImage)
+                Text(controller.active ? "正在刷新…" : (title == "注销" ? "注销并刷新" : title))
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .foregroundStyle(.white)
+                    .background(Color.black, in: Capsule())
+                    .contentShape(Capsule())
             }
+            .buttonStyle(.plain)
             .disabled(model.busy || controller.active)
             .accessibilityIdentifier(title == "注销" ? "wallpaper.logout" : "wallpaper.refresh")
 
             if controller.active, let webView = controller.webView {
-                // Keep the original WKWebView attached to the view hierarchy
-                // so the existing respring document can run without a second sheet.
+                // Preserve the original execution surface from the second sheet.
+                // The reload document needs a real, attached WKWebView.
                 RespringSurface(webView: webView)
-                    .frame(width: 1, height: 1)
-                    .opacity(0.01)
+                    .frame(height: 180)
+                    .frame(maxWidth: .infinity)
                     .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-                ProgressView("正在尝试刷新系统界面…")
+                    .onAppear { controller.loadIfNeeded() }
+                ProgressView("正在尝试重载系统界面…")
                     .font(.caption)
                 Button("停止尝试") {
                     controller.stop("已停止，未确认是否刷新。")
@@ -59,6 +65,13 @@ final class RespringController: ObservableObject {
     @Published private(set) var message = initialMessage
     private var timer: Task<Void, Never>?
     private(set) var webView: WKWebView?
+    private var didLoad = false
+
+    func loadIfNeeded() {
+        guard active, !didLoad, let webView else { return }
+        didLoad = true
+        webView.loadHTMLString(RespringDocument.document, baseURL: nil)
+    }
 
     func start() {
         guard !active else { return }
@@ -74,10 +87,11 @@ final class RespringController: ObservableObject {
         view.isOpaque = true
         view.backgroundColor = .black
         view.scrollView.isScrollEnabled = false
+        didLoad = false
         webView = view
         active = true
         message = "正在尝试重载系统界面，请稍后到车机确认壁纸是否生效…"
-        view.loadHTMLString(RespringDocument.document, baseURL: nil)
+        // Loading occurs after the web view has been mounted in SwiftUI.
         timer = Task { [weak self] in
             do { try await Task.sleep(nanoseconds: 10_000_000_000) } catch { return }
             self?.stop("尝试已停止。若没有返回桌面或壁纸仍未更新，请手动重启 iPhone。")
@@ -91,6 +105,7 @@ final class RespringController: ObservableObject {
         webView?.loadHTMLString("<html><body></body></html>", baseURL: nil)
         webView?.removeFromSuperview()
         webView = nil
+        didLoad = false
         active = false
         message = text
     }
