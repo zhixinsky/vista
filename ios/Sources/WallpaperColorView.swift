@@ -17,8 +17,16 @@ struct WallpaperColorView: View {
     @State private var showOverallMore = false
     @State private var savedOverall: WallpaperColorAdjustment?
     @State private var showRegionMore = false
+    @State private var selectedSection: ColorSection = .region
+    var resetToken: Int = 0
 
-    init(photo: MakerPhoto, embedded: Bool = false, save: @escaping (WallpaperColorAdjustment) -> Void) {
+    private enum ColorSection: String, CaseIterable {
+        case region = "区域调节"
+        case overall = "整体调节"
+    }
+
+    init(photo: MakerPhoto, embedded: Bool = false, resetToken: Int = 0, save: @escaping (WallpaperColorAdjustment) -> Void) {
+        self.resetToken = resetToken
         self.embedded = embedded
         self.photo = photo
         self.save = save
@@ -51,13 +59,15 @@ struct WallpaperColorView: View {
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
-                        ToolbarItem(placement: .confirmationAction) {
+                        ToolbarItemGroup(placement: .confirmationAction) {
+                            Button("还原") { resetAll() }.disabled(original == nil)
                             Button("确定") { save(adjustment); dismiss() }.disabled(original == nil)
                         }
                     }
                 }
             }
         }
+        .onChange(of: resetToken) { _, _ in resetAll() }
         .tint(CanvasTheme.accent)
         .task { await loadOriginal() }
         .task(id: PreviewKey(ready: original != nil, color: adjustment)) { await updatePreview() }
@@ -96,6 +106,15 @@ struct WallpaperColorView: View {
     private var controlsPanel: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                Picker("调节范围", selection: $selectedSection) {
+                    ForEach(ColorSection.allCases, id: \.self) { section in
+                        Text(section.rawValue).tag(section)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("color.sectionPicker")
+
+                if selectedSection == .region {
                 Toggle("区域调节", isOn: Binding(
                     get: { adjustment.leftEdge != nil },
                     set: { enabled in
@@ -160,8 +179,7 @@ struct WallpaperColorView: View {
                     }
                 }
 
-                Divider()
-
+                } else {
                 Toggle("整体调节", isOn: Binding(
                     get: { adjustment.mask != nil },
                     set: { enabled in
@@ -237,16 +255,8 @@ struct WallpaperColorView: View {
                     }
                 }
 
-                Button("重置全部调色") {
-                    adjustment = .init()
-                    savedEdge = .init()
-                    savedMask = .init()
-                    savedAdvanced = .init()
-                    savedOverall = nil
-                    showOverallMore = false
-                    showRegionMore = false
-                    showOriginal = false
                 }
+
                 if let problem { Text(problem).font(.footnote).foregroundStyle(.red) }
             }
             .disabled(original == nil)
@@ -254,6 +264,17 @@ struct WallpaperColorView: View {
             .frame(maxWidth: 600)
             .frame(maxWidth: .infinity)
         }
+    }
+
+    private func resetAll() {
+        adjustment = .init()
+        savedEdge = .init()
+        savedMask = .init()
+        savedAdvanced = .init()
+        savedOverall = nil
+        showOverallMore = false
+        showRegionMore = false
+        showOriginal = false
     }
 
     private struct PreviewKey: Equatable {
