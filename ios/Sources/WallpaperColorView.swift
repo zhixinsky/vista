@@ -15,6 +15,7 @@ struct WallpaperColorView: View {
     @State private var savedMask: WallpaperMaskCompensation
     @State private var savedAdvanced: WallpaperAdvancedGrade
     @State private var usedWidePreset = false
+    @State private var showAdvancedSettings = false
     private static let widePreset = WallpaperLeftEdgeBlend(width: 0.20, brightness: 0.90, saturation: 0.08, curve: 1)
 
     init(photo: MakerPhoto, embedded: Bool = false, save: @escaping (WallpaperColorAdjustment) -> Void) {
@@ -92,7 +93,7 @@ struct WallpaperColorView: View {
     private var controlsPanel: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Button("大联屏融合补偿") {
+                Button("一键预设") {
                     var preset = Self.widePreset
                     preset.advanced = adjustment.leftEdge?.advanced
                     adjustment.leftEdge = preset
@@ -102,10 +103,17 @@ struct WallpaperColorView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(original == nil)
                 if usedWidePreset {
-                    Text(adjustment.leftEdge == nil ? "大联屏融合补偿已暂停" :
-                         Self.matchesWide(adjustment.leftEdge) ? "大联屏预设已应用" : "大联屏预设已手动修改")
+                    Text(adjustment.leftEdge == nil ? "预设已暂停" :
+                         Self.matchesWide(adjustment.leftEdge) ? "预设已应用" : "预设已手动调整")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                Text("快速调整壁纸左侧，让大联屏接缝更自然。")
+                    .font(.caption).foregroundStyle(.secondary)
+                if adjustment.leftEdge != nil {
+                    slider("融合强度", value: edgeValue(\.brightness), range: -0.50...1, neutral: 0, format: "%+.0f%%")
+                }
+                DisclosureGroup("高级设置", isExpanded: $showAdvancedSettings) {
+                    VStack(alignment: .leading, spacing: 18) {
                 if adjustment.leftEdge != nil && adjustment.mask != nil {
                     Label("已叠加两项补偿，左侧亮度会同时受两项影响。", systemImage: "square.stack")
                         .font(.caption).foregroundStyle(.secondary)
@@ -159,6 +167,9 @@ struct WallpaperColorView: View {
                                scale: 1, format: "%.2f")
                     }
                     .padding(.top, 8)
+                }
+                    }
+                    .padding(.top, 10)
                 }
                 Button("重置全部调色") {
                     adjustment = .init()
