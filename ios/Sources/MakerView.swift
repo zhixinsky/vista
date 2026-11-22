@@ -3,11 +3,6 @@ import SwiftUI
 import PhotosUI
 import Photos
 
-private struct CatalogApply: Identifiable {
-    let id = UUID()
-    let entries: [SavedWallpaper]
-}
-
 struct ComposeWallpaperView: View {
     @EnvironmentObject var model: WorkshopModel
     @Binding var galleryImport: GalleryImport?
@@ -28,12 +23,10 @@ struct ComposeWallpaperView: View {
     @AppStorage("CarVistaSharedHistory") private var sharedHistory = ""
     @State private var cropOrientation = CropOrientationSession()
     @State private var applying = false
-    @State private var catalogApply: CatalogApply?
     @State private var sharedTop = Array(SharedWallpaper.saved.prefix(10))
     @State private var sharedNote = ""
     @State private var sharedBusy: String?
     @State private var sharedSort: ShareSort = .likes
-    @State private var sharedPreview: SharedWallpaper?
     @State private var sharedComments: SharedWallpaper?
     @State private var seriesEntries = GalleryCategory.savedSeriesHomeEntries(includeHidden: false)
     @State private var seriesNote = ""
@@ -197,11 +190,16 @@ struct ComposeWallpaperView: View {
                         HStack(spacing: 12) {
                             ForEach(sharedTop) { item in
                                 VStack(alignment: .leading, spacing: 6) {
-                                    Button { sharedPreview = item } label: {
+                                    Button { importShared(item) } label: {
                                         GalleryImage(url: item.previewURL, mode: .fill)
                                             .frame(width: 160, height: 90)
                                             .clipShape(RoundedRectangle(cornerRadius: 10))
+                                            .overlay {
+                                                if sharedBusy == item.id { WallpaperDownloadCover() }
+                                            }
                                     }.buttonStyle(.plain)
+                                        .disabled(locked || sharedBusy != nil)
+                                        .accessibilityLabel("导入\(item.title)")
                                     Text(item.title).font(.caption).lineLimit(1)
                                     HStack {
                                         Label("\(item.likes)", systemImage: "heart").font(.caption2)
@@ -209,9 +207,6 @@ struct ComposeWallpaperView: View {
                                             Label("\(item.comments ?? 0)", systemImage: "bubble.left").font(.caption2)
                                         }.buttonStyle(.plain).accessibilityLabel("查看评论")
                                         Spacer(minLength: 0)
-                                        Button(sharedBusy == item.id ? "导入中" : "选择") { applyShared(item) }
-                                            .buttonStyle(.bordered).controlSize(.mini)
-                                            .disabled(locked || sharedBusy != nil)
                                     }
                                 }.frame(width: 160)
 
@@ -338,10 +333,6 @@ struct ComposeWallpaperView: View {
             .sheet(item: $sharedComments, onDismiss: { Task { await loadShared() } }) { item in
                 ShareCommentsView(item: item)
             }
-            .fullScreenCover(item: $sharedPreview) { item in ShareImagePreview(item: item) }
-            .sheet(item: $catalogApply) { apply in
-                NavigationStack { ApplyWallpaperView(entries: apply.entries) }
-            }
     }
 
     private func downloadPhoto() {
@@ -389,7 +380,7 @@ struct ComposeWallpaperView: View {
         }
         do {
             var incoming = try await Task.detached { try MakerDraft.importPhoto(data: request.data) }.value
-            incoming.sourceName = request.source == "buick" ? "别克大联屏" : request.source == "stock" ? "默认壁纸" : "在线图库"
+            incoming.sourceName = request.source == "buick" ? "别克大联屏" : request.source == "stock" ? "默认壁纸" : request.source == "share" ? "精选壁纸" : "在线图库"
             incoming.remoteSource = request.source
             incoming.remoteAssetID = request.assetID
             guard !Task.isCancelled else {
@@ -445,28 +436,19 @@ struct ComposeWallpaperView: View {
         }
     }
 
-    private func applyShared(_ item: SharedWallpaper) {
+    private func importShared(_ item: SharedWallpaper) {
         guard !locked, sharedBusy == nil else { return }
-        loading = true
         sharedBusy = item.id
         problem = nil
         Task {
-            defer {
-                loading = false
-                sharedBusy = nil
-            }
+            defer { sharedBusy = nil }
             do {
                 let (data, response) = try await URLSession.shared.data(from: item.originalURL)
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else {
                     problem = "无法下载这张壁纸。"
                     return
                 }
-                let ready = await model.prepareOriginal(data, source: "share", assetID: item.id)
-                guard !ready.isEmpty else {
-                    problem = model.message
-                    return
-                }
-                catalogApply = CatalogApply(entries: ready)
+                galleryImport = GalleryImport(data: data, source: "share", assetID: item.id)
             } catch {
                 problem = "无法下载这张壁纸。"
             }
@@ -589,3 +571,4 @@ private struct MakerThumbnail: View {
             .task(id: url) { image = await Task.detached { try? WallpaperRenderer.load(url, maximum: 160) }.value }
     }
 }
+                                                                                                                                                                                                    

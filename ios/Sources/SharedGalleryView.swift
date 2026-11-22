@@ -71,7 +71,6 @@ struct SharedWallpaperGalleryView: View {
     @State private var busyID: String?
     @State private var liking = false
     @State private var sort: ShareSort = .likes
-    @State private var previewItem: SharedWallpaper?
     @State private var commentItem: SharedWallpaper?
 
     init(use: @escaping (GalleryPick) -> Void) {
@@ -91,7 +90,7 @@ struct SharedWallpaperGalleryView: View {
                 }
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 8) {
-                        Button { previewItem = item } label: {
+                        Button { select(item) } label: {
                             GalleryImage(url: item.previewURL, mode: .fill)
                             .frame(height: 180)
                             .frame(maxWidth: .infinity)
@@ -101,30 +100,27 @@ struct SharedWallpaperGalleryView: View {
                                 if busyID == item.id { WallpaperDownloadCover() }
                             }
                         }.buttonStyle(.plain).disabled(busyID != nil || model.busy)
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(item.title).font(.subheadline)
-                                if let author = item.author, !author.isEmpty {
-                                    Text("作者：\(author)").font(.caption).foregroundStyle(.secondary)
-                                }
-                                if !item.intro.isEmpty {
-                                    Text(item.intro).font(.caption).foregroundStyle(.secondary).lineLimit(3)
-                                }
-                                Text("\(item.width) × \(item.height)").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                        }
-                        HStack {
-                            Button { commentItem = item } label: {
-                                Label("\(item.comments ?? 0)", systemImage: "bubble.left")
-                            }.buttonStyle(.bordered).accessibilityLabel("查看评论，共 \(item.comments ?? 0) 条")
-                            Spacer()
+                            .accessibilityLabel("选择\(item.title)")
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(item.title).font(.subheadline).lineLimit(1)
+                            Spacer(minLength: 8)
                             Button { like(item) } label: {
                                 Label("\(item.likes)", systemImage: item.liked ? "heart.fill" : "heart")
-                            }.buttonStyle(.bordered).disabled(busyID != nil || liking)
-                            Button(busyID == item.id ? "正在导入…" : "选择") { select(item) }
-                                .buttonStyle(.borderedProminent)
-                                .disabled(busyID != nil || model.busy)
+                            }.font(.caption2).buttonStyle(.plain).disabled(busyID != nil || liking)
+                                .accessibilityLabel(item.liked ? "取消点赞，目前 \(item.likes) 个赞" : "点赞，目前 \(item.likes) 个赞")
+                            Button { commentItem = item } label: {
+                                Label("\(item.comments ?? 0)", systemImage: "bubble.left")
+                            }.font(.caption2).buttonStyle(.plain)
+                                .accessibilityLabel("查看评论，共 \(item.comments ?? 0) 条")
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let author = item.author, !author.isEmpty {
+                                Text("作者：\(author)").font(.caption).foregroundStyle(.secondary)
+                            }
+                            if !item.intro.isEmpty {
+                                Text(item.intro).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+                            }
+                            Text("\(item.width) × \(item.height)").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -137,7 +133,6 @@ struct SharedWallpaperGalleryView: View {
         .sheet(item: $commentItem, onDismiss: { Task { await reload() } }) { item in
             ShareCommentsView(item: item)
         }
-        .fullScreenCover(item: $previewItem) { item in ShareImagePreview(item: item) }
     }
 
     private func reload() async {
@@ -153,7 +148,7 @@ struct SharedWallpaperGalleryView: View {
         }
         guard !Task.isCancelled, requested == sort else { return }
         items = remote
-        note = remote.isEmpty ? "暂无精选壁纸。" : "点图片查看大图，点“选择”导入。"
+        note = remote.isEmpty ? "暂无精选壁纸。" : "点图片即可导入。"
     }
 
     private func like(_ item: SharedWallpaper) {
@@ -297,29 +292,6 @@ struct ShareCommentsView: View {
             draft = ""
             await load(reset: true)
         } catch { note = error.localizedDescription }
-    }
-}
-
-struct ShareImagePreview: View {
-    @Environment(\.dismiss) private var dismiss
-    let item: SharedWallpaper
-    @State private var scale: CGFloat = 1
-    @GestureState private var magnification: CGFloat = 1
-    var body: some View {
-        NavigationStack {
-            GeometryReader { geometry in
-                ScrollView([.horizontal, .vertical]) {
-                    GalleryImage(url: item.originalURL, mode: .fit)
-                        .frame(width: geometry.size.width * min(5, max(1, scale * magnification)),
-                               height: geometry.size.height * min(5, max(1, scale * magnification)))
-                }
-                .simultaneousGesture(MagnificationGesture().updating($magnification) { value, state, _ in state = value }
-                    .onEnded { scale = min(5, max(1, scale * $0)) })
-                .onTapGesture(count: 2) { scale = scale > 1 ? 1 : 2 }
-            }
-            .navigationTitle(item.title).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("关闭") { dismiss() } } }
-        }
     }
 }
 
