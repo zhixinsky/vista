@@ -197,32 +197,11 @@ struct ComposeWallpaperView: View {
                                         .disabled(locked || sharedBusy != nil)
                                         .accessibilityLabel("导入\(item.title)")
                                     Text(item.title).font(.caption).lineLimit(1)
-                                    HStack(spacing: 8) {
-                                        // 当前模型只提供点赞总数；用户点赞状态需由点赞接口提供。
-                                        HStack(spacing: 5) {
-                                            Image(systemName: "heart")
-                                                .font(.system(size: 18, weight: .medium))
-                                            Text("\(item.likes)")
-                                                .font(.system(size: 14, weight: .medium))
-                                        }
-                                        .foregroundStyle(.secondary)
-                                        .frame(minWidth: 52, minHeight: 44)
-                                        .accessibilityElement(children: .combine)
-                                        .accessibilityLabel("\(item.likes) 个赞")
-
+                                    HStack {
+                                        Label("\(item.likes)", systemImage: "heart").font(.caption2)
                                         Button { sharedComments = item } label: {
-                                            HStack(spacing: 5) {
-                                                Image(systemName: "bubble.left")
-                                                    .font(.system(size: 18, weight: .medium))
-                                                Text("\(item.comments ?? 0)")
-                                                    .font(.system(size: 14, weight: .medium))
-                                            }
-                                            .foregroundStyle(.primary)
-                                            .frame(minWidth: 60, minHeight: 44)
-                                            .contentShape(Rectangle())
-                                        }
-                                        .buttonStyle(.plain)
-                                        .accessibilityLabel("查看评论")
+                                            Label("\(item.comments ?? 0)", systemImage: "bubble.left").font(.caption2)
+                                        }.buttonStyle(.plain).accessibilityLabel("查看评论")
                                         Spacer(minLength: 0)
                                     }
                                 }.frame(width: 160)
@@ -587,3 +566,4 @@ private struct MakerThumbnail: View {
             .task(id: url) { image = await Task.detached { try? WallpaperRenderer.load(url, maximum: 160) }.value }
     }
 }
+                                                                                                                                                                                                    
