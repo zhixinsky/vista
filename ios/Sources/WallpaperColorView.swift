@@ -14,19 +14,22 @@ struct WallpaperColorView: View {
     @State private var savedEdge: WallpaperLeftEdgeBlend
     @State private var savedMask: WallpaperMaskCompensation
     @State private var savedAdvanced: WallpaperAdvancedGrade
-    @State private var usedWidePreset = false
-    @State private var showAdvancedSettings = false
-    private static let widePreset = WallpaperLeftEdgeBlend(width: 0.20, brightness: 0.90, saturation: 0.08, curve: 1)
+    @State private var showRegionSettings = true
+    @State private var showOverallSettings = false
+    @State private var showRegionMore = false
 
     init(photo: MakerPhoto, embedded: Bool = false, save: @escaping (WallpaperColorAdjustment) -> Void) {
         self.embedded = embedded
         self.photo = photo
         self.save = save
-        _adjustment = State(initialValue: photo.adjustment.color ?? .init())
+        var initialColor = photo.adjustment.color ?? .init()
+        initialColor.leftEdge?.advanced?.local = true
+        _adjustment = State(initialValue: initialColor)
         _savedEdge = State(initialValue: photo.adjustment.color?.leftEdge ?? .init())
         _savedMask = State(initialValue: photo.adjustment.color?.mask ?? .init())
-        _savedAdvanced = State(initialValue: photo.adjustment.color?.leftEdge?.advanced ?? .init())
-        _usedWidePreset = State(initialValue: Self.matchesWide(photo.adjustment.color?.leftEdge))
+        var initialAdvanced = photo.adjustment.color?.leftEdge?.advanced ?? .init()
+        initialAdvanced.local = true
+        _savedAdvanced = State(initialValue: initialAdvanced)
     }
 
     var body: some View {
@@ -92,95 +95,131 @@ struct WallpaperColorView: View {
 
     private var controlsPanel: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Button("一键预设") {
-                    var preset = Self.widePreset
-                    preset.advanced = adjustment.leftEdge?.advanced
-                    adjustment.leftEdge = preset
-                    usedWidePreset = true
-                    showOriginal = false
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(original == nil)
-                if usedWidePreset {
-                    Text(adjustment.leftEdge == nil ? "预设已暂停" :
-                         Self.matchesWide(adjustment.leftEdge) ? "预设已应用" : "预设已手动调整")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Text("快速调整壁纸左侧，让大联屏接缝更自然。")
-                    .font(.caption).foregroundStyle(.secondary)
-                if adjustment.leftEdge != nil {
-                    slider("融合强度", value: edgeValue(\.brightness), range: -0.50...1, neutral: 0, format: "%+.0f%%")
-                }
-                DisclosureGroup("高级设置", isExpanded: $showAdvancedSettings) {
-                    VStack(alignment: .leading, spacing: 18) {
-                if adjustment.leftEdge != nil && adjustment.mask != nil {
-                    Label("已叠加两项补偿，左侧亮度会同时受两项影响。", systemImage: "square.stack")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                leftEdgeControls
-                Toggle("CarPlay 蒙版补偿", isOn: Binding(
-                    get: { adjustment.mask != nil },
-                    set: { enabled in
-                        if let mask = adjustment.mask { savedMask = mask }
-                        adjustment.mask = enabled ? savedMask : nil
-                        showOriginal = false
-                    }
-                )).disabled(original == nil)
-                if let mask = adjustment.mask {
-                    Text("黑色蒙版 #000000").font(.subheadline).foregroundStyle(.secondary)
-                    slider("蒙版透明度", value: Binding(
-                        get: { adjustment.mask?.opacity ?? mask.opacity },
-                        set: { adjustment.mask?.opacity = $0 }
-                    ), range: 0...0.50, neutral: 0, format: "%.0f%%")
-                    slider("补偿强度", value: Binding(
-                        get: { adjustment.mask?.strength ?? 1 },
-                        set: { adjustment.mask?.strength = $0 }
-                    ), range: 0...1.50, neutral: 0, format: "%.0f%%")
-                    Toggle("水平渐变", isOn: Binding(
-                        get: { adjustment.mask?.horizontalGradient ?? false },
-                        set: { adjustment.mask?.horizontalGradient = $0 }
-                    ))
-                    if mask.horizontalGradient == true {
-                        Text("默认从左到右：24% → 20% → 15%。")
+            VStack(alignment: .leading, spacing: 14) {
+                DisclosureGroup("区域调节", isExpanded: $showRegionSettings) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("仅针对图片左侧区域调节，向右自然渐变，不影响其余区域。")
                             .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Toggle("高光保护", isOn: Binding(
-                        get: { adjustment.mask?.protectHighlights ?? true },
-                        set: { adjustment.mask?.protectHighlights = $0 }
-                    ))
-                    Text("20% 蒙版在 100% 强度下对应 1.25 倍 RGB 增益，高光保护会柔和压缩亮部。")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                DisclosureGroup("更多调节") {
-                    VStack(alignment: .leading, spacing: 18) {
-                        slider("亮度", value: $adjustment.brightness, range: -0.15...0.15, neutral: 0)
-                        slider("曝光", value: manual(\.exposure, defaultValue: 0), range: -1...1, neutral: 0,
-                               scale: 1, format: "%+.2f EV")
-                        slider("对比度", value: $adjustment.contrast, range: 0.75...1.35, neutral: 1)
-                        slider("饱和度", value: $adjustment.saturation, range: 0.5...1.5, neutral: 1)
-                        slider("高光", value: manual(\.highlights, defaultValue: 0), range: -1...0, neutral: 0)
-                        slider("阴影", value: manual(\.shadows, defaultValue: 0), range: -1...1, neutral: 0)
-                        slider("色温", value: manual(\.temperature, defaultValue: 0), range: -2000...2000, neutral: 0,
-                               step: 50, scale: 1, format: "%+.0f K")
-                        slider("Gamma", value: manual(\.gamma, defaultValue: 1), range: 0.65...1.5, neutral: 0,
-                               scale: 1, format: "%.2f")
+                        Toggle("启用区域调节", isOn: Binding(
+                            get: { adjustment.leftEdge != nil },
+                            set: { enabled in
+                                if let edge = adjustment.leftEdge { savedEdge = edge }
+                                if enabled {
+                                    var edge = savedEdge
+                                    edge.advanced?.local = true
+                                    adjustment.leftEdge = edge
+                                } else {
+                                    adjustment.leftEdge = nil
+                                }
+                                showOriginal = false
+                            }
+                        ))
+                        if adjustment.leftEdge != nil {
+                            slider("亮度", value: edgeValue(\.brightness), range: -0.50...1, neutral: 0, format: "%+.0f%%")
+                            slider("曝光", value: regionExposure, range: -1...0.85, neutral: 0,
+                                   step: 0.05, scale: 1, format: "%+.2f EV")
+                            slider("饱和度", value: edgeValue(\.saturation), range: -0.50...1, neutral: 0, format: "%+.0f%%")
+                            slider("渐变曲线", value: edgeValue(\.curve), range: 0.75...3, neutral: 0,
+                                   step: 0.05, scale: 1, format: "%.2f")
+                            slider("渐变宽度", value: edgeValue(\.width), range: 0...0.50, neutral: 0, format: "%.0f%%")
+                            DisclosureGroup("更多调节", isExpanded: $showRegionMore) {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("色阶、RGB 通道及曲线只作用于左侧融合区域。")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Toggle("精细调色", isOn: Binding(
+                                        get: { adjustment.leftEdge?.advanced != nil },
+                                        set: { enabled in
+                                            if enabled {
+                                                var grade = savedAdvanced
+                                                grade.local = true
+                                                adjustment.leftEdge?.advanced = grade
+                                            } else {
+                                                if let grade = adjustment.leftEdge?.advanced { savedAdvanced = grade }
+                                                adjustment.leftEdge?.advanced = nil
+                                            }
+                                            showOriginal = false
+                                        }
+                                    ))
+                                    if adjustment.leftEdge?.advanced != nil {
+                                        WallpaperAdvancedControls(
+                                            grade: Binding(
+                                                get: {
+                                                    var grade = adjustment.leftEdge?.advanced ?? savedAdvanced
+                                                    grade.local = true
+                                                    return grade
+                                                },
+                                                set: { value in
+                                                    var grade = value
+                                                    grade.local = true
+                                                    adjustment.leftEdge?.advanced = grade
+                                                    savedAdvanced = grade
+                                                    showOriginal = false
+                                                }
+                                            ),
+                                            original: original,
+                                            seamWidth: adjustment.leftEdge?.width ?? 0
+                                        )
+                                    }
+                                }
+                                .padding(.top, 8)
+                            }
+                        }
                     }
                     .padding(.top, 8)
                 }
+
+                DisclosureGroup("整体调节", isExpanded: $showOverallSettings) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("作用于整张图片，可与区域调节叠加。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Toggle("CarPlay 蒙版补偿", isOn: Binding(
+                            get: { adjustment.mask != nil },
+                            set: { enabled in
+                                if let mask = adjustment.mask { savedMask = mask }
+                                adjustment.mask = enabled ? savedMask : nil
+                                showOriginal = false
+                            }
+                        ))
+                        if let mask = adjustment.mask {
+                            Text("黑色蒙版 #000000").font(.subheadline).foregroundStyle(.secondary)
+                            slider("蒙版透明度", value: Binding(
+                                get: { adjustment.mask?.opacity ?? mask.opacity },
+                                set: { adjustment.mask?.opacity = $0; showOriginal = false }
+                            ), range: 0...0.50, neutral: 0, format: "%.0f%%")
+                            slider("补偿强度", value: Binding(
+                                get: { adjustment.mask?.strength ?? 1 },
+                                set: { adjustment.mask?.strength = $0; showOriginal = false }
+                            ), range: 0...1.50, neutral: 0, format: "%.0f%%")
+                            Toggle("水平渐变", isOn: Binding(
+                                get: { adjustment.mask?.horizontalGradient ?? false },
+                                set: { adjustment.mask?.horizontalGradient = $0; showOriginal = false }
+                            ))
+                            if mask.horizontalGradient == true {
+                                Text("默认从左到右：24% → 20% → 15%。")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Toggle("高光保护", isOn: Binding(
+                                get: { adjustment.mask?.protectHighlights ?? true },
+                                set: { adjustment.mask?.protectHighlights = $0; showOriginal = false }
+                            ))
+                        }
                     }
-                    .padding(.top, 10)
+                    .padding(.top, 8)
                 }
+
                 Button("重置全部调色") {
                     adjustment = .init()
                     savedEdge = .init()
                     savedMask = .init()
                     savedAdvanced = .init()
-                    usedWidePreset = false
                     showOriginal = false
                 }
                 if let problem { Text(problem).font(.footnote).foregroundStyle(.red) }
-            }.padding(20).frame(maxWidth: 600).frame(maxWidth: .infinity)
+            }
+            .disabled(original == nil)
+            .padding(20)
+            .frame(maxWidth: 600)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -189,66 +228,29 @@ struct WallpaperColorView: View {
         let color: WallpaperColorAdjustment
     }
 
-    private var leftEdgeControls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Toggle("CarPlay 左侧边缘融合", isOn: Binding(
-                get: { adjustment.leftEdge != nil },
-                set: { enabled in
-                    if let edge = adjustment.leftEdge { savedEdge = edge }
-                    adjustment.leftEdge = enabled ? savedEdge : nil
-                    showOriginal = false
-                }
-            ))
-            if adjustment.leftEdge != nil {
-                slider("渐变宽度", value: edgeValue(\.width), range: 0...0.50, neutral: 0, format: "%.0f%%")
-                slider("左边缘亮度增益", value: edgeValue(\.brightness), range: -0.50...1, neutral: 0, format: "%+.0f%%")
-                slider("左边缘饱和度", value: edgeValue(\.saturation), range: -0.50...1, neutral: 0, format: "%+.0f%%")
-                slider("渐变曲线", value: edgeValue(\.curve), range: 0.75...3, neutral: 0,
-                       step: 0.05, scale: 1, format: "%.2f")
-                Text("1.00 为标准 Smoothstep。数值越大，补偿越集中在左边缘。")
-                    .font(.caption).foregroundStyle(.secondary)
-                Toggle("高级调色", isOn: Binding(
-                    get: { adjustment.leftEdge?.advanced != nil },
-                    set: { enabled in
-                        if let grade = adjustment.leftEdge?.advanced { savedAdvanced = grade }
-                        adjustment.leftEdge?.advanced = enabled ? savedAdvanced : nil
-                        showOriginal = false
-                    }
-                ))
-                if adjustment.leftEdge?.advanced == nil {
-                    Text("打开后可单独调整接缝附近的色阶、RGB 和曲线。")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if adjustment.leftEdge?.advanced != nil {
-                    WallpaperAdvancedControls(
-                        grade: Binding(
-                            get: { adjustment.leftEdge?.advanced ?? savedAdvanced },
-                            set: {
-                                adjustment.leftEdge?.advanced = $0
-                                savedAdvanced = $0
-                                showOriginal = false
-                            }
-                        ),
-                        original: original,
-                        seamWidth: adjustment.leftEdge?.width ?? 0
-                    )
-                }
-                Button("恢复普通融合默认值") {
-                    var edge = WallpaperLeftEdgeBlend()
-                    edge.advanced = adjustment.leftEdge?.advanced
-                    adjustment.leftEdge = edge
-                    savedEdge = edge
-                    usedWidePreset = false
-                    showOriginal = false
-                }
+    // 区域曝光复用现有左侧高级增益通道，避免影响全图曝光。
+    // 三通道等比例缩放；高级 RGB 微调的相对比例会保留。
+    private var regionExposure: Binding<Double> {
+        Binding(
+            get: {
+                guard let grade = adjustment.leftEdge?.advanced else { return 0 }
+                let geometricMean = pow(max(0.001, grade.gainRed * grade.gainGreen * grade.gainBlue), 1.0 / 3.0)
+                return log2(geometricMean)
+            },
+            set: { ev in
+                guard adjustment.leftEdge != nil else { return }
+                var grade = adjustment.leftEdge?.advanced ?? savedAdvanced
+                grade.local = true
+                let oldGain = pow(max(0.001, grade.gainRed * grade.gainGreen * grade.gainBlue), 1.0 / 3.0)
+                let factor = pow(2.0, ev) / oldGain
+                grade.gainRed *= factor
+                grade.gainGreen *= factor
+                grade.gainBlue *= factor
+                adjustment.leftEdge?.advanced = grade
+                savedAdvanced = grade
+                showOriginal = false
             }
-        }.disabled(original == nil)
-    }
-
-    private static func matchesWide(_ edge: WallpaperLeftEdgeBlend?) -> Bool {
-        guard let edge else { return false }
-        return edge.width == widePreset.width && edge.brightness == widePreset.brightness
-            && edge.saturation == widePreset.saturation && edge.curve == widePreset.curve
+        )
     }
 
     private func edgeValue(_ field: WritableKeyPath<WallpaperLeftEdgeBlend, Double>) -> Binding<Double> {
