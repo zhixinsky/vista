@@ -15,7 +15,7 @@ extension WorkshopModel {
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw RestoreError.message("无法读取默认壁纸配置，请稍后重试。") }
                 struct Config: Decodable { let groups: [String] }
                 let groups = try JSONDecoder().decode(Config.self, from: data).groups
-                let allowed = Set(["Blue", "Brown", "DarkBlue", "Green", "Grey", "Hero", "Purple", "Red", "Teal"])
+                let allowed = Set(["Black", "Blue", "Brown", "DarkBlue", "Green", "Grey", "Hero", "Lilac", "Purple", "Red", "Teal"])
                 guard groups.count == 6, Set(groups).count == 6, groups.allSatisfy({ allowed.contains($0) }) else { throw RestoreError.message("默认壁纸尚未配置，请联系管理员。") }
                 var images: [String: Data] = [:]
                 for group in groups {
