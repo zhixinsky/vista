@@ -24,8 +24,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: local.carvista
         INFOPLIST_KEY_CFBundleDisplayName: CarVista
-        INFOPLIST_KEY_CarVistaUpdateBundleID: local.carvista
-        INFOPLIST_KEY_CarVistaBackendAPIVersion: '2'
+        INFOPLIST_FILE: Info.plist
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: '将裁剪和校色后的壁纸保存到你的相册。'
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
         MARKETING_VERSION: '0.9.0'
