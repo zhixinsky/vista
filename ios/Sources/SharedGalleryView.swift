@@ -106,11 +106,11 @@ struct SharedWallpaperGalleryView: View {
                             Spacer(minLength: 8)
                             Button { like(item) } label: {
                                 Label("\(item.likes)", systemImage: item.liked ? "heart.fill" : "heart")
-                            }.font(.caption2).buttonStyle(.plain).disabled(busyID != nil || liking)
+                            }.font(.caption).buttonStyle(.plain).disabled(busyID != nil || liking)
                                 .accessibilityLabel(item.liked ? "取消点赞，目前 \(item.likes) 个赞" : "点赞，目前 \(item.likes) 个赞")
                             Button { commentItem = item } label: {
                                 Label("\(item.comments ?? 0)", systemImage: "bubble.left")
-                            }.font(.caption2).buttonStyle(.plain)
+                            }.font(.caption).buttonStyle(.plain)
                                 .accessibilityLabel("查看评论，共 \(item.comments ?? 0) 条")
                         }
                         VStack(alignment: .leading, spacing: 2) {

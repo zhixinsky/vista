@@ -26,7 +26,6 @@ struct ComposeWallpaperView: View {
     @State private var sharedTop = Array(SharedWallpaper.saved.prefix(10))
     @State private var sharedNote = ""
     @State private var sharedBusy: String?
-    @State private var sharedSort: ShareSort = .likes
     @State private var sharedComments: SharedWallpaper?
     @State private var seriesEntries = GalleryCategory.savedSeriesHomeEntries(includeHidden: false)
     @State private var seriesNote = ""
@@ -175,9 +174,6 @@ struct ComposeWallpaperView: View {
                             Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                         }
                     }.buttonStyle(.plain).disabled(openShared == nil).accessibilityIdentifier("wallpaper.shared")
-                    Picker("精选壁纸排序", selection: $sharedSort) {
-                        ForEach(ShareSort.allCases) { Text($0.title).tag($0) }
-                    }.pickerStyle(.segmented)
                     if sharedBusy != nil {
                         HStack(spacing: 8) {
                             ProgressView()
@@ -308,7 +304,7 @@ struct ComposeWallpaperView: View {
                 }
             }
             .onAppear { initialize() }
-            .task(id: sharedSort) { await loadShared() }
+            .task { await loadShared() }
             .task { await loadSeries() }
             .onChange(of: model.photoDownloadUnlocked) { _, _ in Task { await loadSeries() } }
             .alert("已保存到相册", isPresented: $savedToPhotos) { Button("好", role: .cancel) {} }
@@ -401,12 +397,11 @@ struct ComposeWallpaperView: View {
             sharedTop = []
             return
         }
-        let requested = sharedSort
-        guard let remote = await ServiceClient.shared.fetchShares(sort: requested) else {
-            if !Task.isCancelled, requested == sharedSort { sharedNote = "加载失败，请稍后重试。" }
+        guard let remote = await ServiceClient.shared.fetchShares(sort: .likes) else {
+            if !Task.isCancelled { sharedNote = "加载失败，请稍后重试。" }
             return
         }
-        guard !Task.isCancelled, requested == sharedSort else { return }
+        guard !Task.isCancelled else { return }
         sharedTop = Array(remote.prefix(10))
         sharedNote = remote.isEmpty ? "还没有人精选壁纸。" : ""
     }

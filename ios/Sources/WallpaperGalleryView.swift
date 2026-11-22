@@ -76,6 +76,29 @@ private enum BingGallery {
     }
 }
 
+private struct GalleryNavigationBarLineHider: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> Controller { Controller() }
+    func updateUIViewController(_ controller: Controller, context: Context) { controller.clearLine() }
+
+    final class Controller: UIViewController {
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            clearLine()
+        }
+
+        func clearLine() {
+            guard let bar = navigationController?.navigationBar else { return }
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithOpaqueBackground()
+            appearance.shadowColor = .clear
+            appearance.shadowImage = UIImage()
+            bar.standardAppearance = appearance
+            bar.scrollEdgeAppearance = appearance
+            bar.compactAppearance = appearance
+        }
+    }
+}
+
 struct WallpaperGalleryView: View {
     typealias Source = GalleryCategory
     let use: (GalleryPick) -> Void
@@ -106,6 +129,8 @@ struct WallpaperGalleryView: View {
         .navigationTitle("图库")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .toolbarBackground(Color(uiColor: .systemBackground), for: .navigationBar)
+        .background(GalleryNavigationBarLineHider())
         .onAppear {
             galleryVisible = true
             if !visibleSources.contains(source) { source = visibleSources.first ?? .stock }
