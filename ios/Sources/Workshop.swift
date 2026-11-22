@@ -94,7 +94,7 @@ final class WorkshopModel: ObservableObject {
                 return entry
             }.sorted { $0.created > $1.created }
         } catch { message = "无法载入本地历史：\(error.localizedDescription)" }
-        backups = CCEngine.backups() as? [[String: Any]] ?? []
+        backups = (CCEngine.snapshots() as? [[String: Any]] ?? []) + (CCEngine.backups() as? [[String: Any]] ?? [])
     }
 
     func report(_ type: String, ok: Bool, _ payload: [String: Any]) {
@@ -135,7 +135,7 @@ final class WorkshopModel: ObservableObject {
             DispatchQueue.main.async {
                 self.busy = false
                 finish(result)
-                self.backups = CCEngine.backups() as? [[String: Any]] ?? []
+                self.backups = (CCEngine.snapshots() as? [[String: Any]] ?? []) + (CCEngine.backups() as? [[String: Any]] ?? [])
             }
         }
     }
@@ -218,7 +218,11 @@ final class WorkshopModel: ObservableObject {
 
     func apply(entry: SavedWallpaper, target: WallpaperTarget) {
         message = "正在备份、写入并校验…"
-        work({ CCEngine.apply(target.raw, source: entry.bitmap.path) as? [String: Any] ?? [:] }) { result in
+        work({
+            let backup = CCEngine.saveSnapshot([target.raw]) as? [String: Any] ?? [:]
+            guard backup["ok"] as? Bool == true else { return backup }
+            return CCEngine.apply(target.raw, source: entry.bitmap.path) as? [String: Any] ?? [:]
+        }) { result in
             self.message = result["message"] as? String ?? "写入失败"
             self.lastApplySummary = self.message
             // Snapshots are invalid after a mutation attempt; require a rescan.
@@ -378,6 +382,8 @@ final class WorkshopModel: ObservableObject {
         }
         message = "正在备份并应用壁纸…"
         work({
+            let backup = CCEngine.saveSnapshot(targets.map(\.raw)) as? [String: Any] ?? [:]
+            guard backup["ok"] as? Bool == true else { return ["completed": 0, "message": backup["message"] as? String ?? "备份失败"] }
             var completed = 0
             var notes: [String] = []
             for target in targets {
@@ -623,20 +629,24 @@ struct BackupsView: View {
     @State private var confirming = false
     var body: some View {
         List {
-            Text("每个壁纸只在第一次替换前保存苹果自带的原图，之后不会覆盖。恢复始终回到这一份。恢复前先查找车机壁纸。")
-            Button("查找车机壁纸") { model.scan(deep: false) }.disabled(model.busy || model.group.isEmpty)
-            if model.busy { ProgressView("正在处理…") }
-            Text(model.message)
-            if model.backups.isEmpty { Text("还没有原始壁纸。第一次替换时会自动保存。") }
-            ForEach(Array(model.backups.enumerated()), id: \.offset) { _, item in
-                VStack(alignment: .leading) {
-                    Text(item["name"] as? String ?? "备份")
-                    if let date = item["date"] as? Date { Text(date, style: .date); Text(date, style: .time) }
-                    Button("恢复苹果原壁纸") { chosen = item; confirming = true }.disabled(model.busy)
+            Section {
+                Button("恢复 CarPlay 默认壁纸") { model.restoreDefaultWallpapers() }.disabled(model.busy)
+                Text("下载默认壁纸并恢复六组深浅壁纸。").font(.footnote).foregroundStyle(.secondary)
+            }
+            if model.busy { ProgressView(model.message) } else { Text(model.message).font(.footnote) }
+            Section("应用前备份") {
+                Text("保留最近 10 次应用备份。卸载 App 会删除本机备份。").font(.footnote).foregroundStyle(.secondary)
+                ForEach(Array(model.backups.enumerated()), id: \.offset) { _, item in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(item["name"] as? String ?? "备份")
+                        if let date = item["date"] as? Date { Text(date, format: .dateTime.year().month().day().hour().minute()).font(.caption).foregroundStyle(.secondary) }
+                        Button("恢复此备份") { chosen = item; confirming = true }.disabled(model.busy)
+                    }
                 }
             }
         }.navigationTitle("备份与恢复")
-        .confirmationDialog("恢复第一次保存的苹果原壁纸？车上现在的图会被换回这一份。", isPresented: $confirming, titleVisibility: .visible) {
+        .interactiveDismissDisabled(model.busy)
+        .confirmationDialog("恢复这次应用前的壁纸？", isPresented: $confirming, titleVisibility: .visible) {
             Button("确认恢复") { if let chosen { model.restore(chosen) } }
         }
     }

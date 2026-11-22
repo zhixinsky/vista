@@ -367,6 +367,7 @@ static void CCKeepWallpapers(NSString *root, NSArray *files) {
     for (NSDictionary *file in files) {
         NSString *path = file[@"path"];
         NSDictionary *before = wq_file_version(path);
+        if ([target[@"version"] isKindOfClass:NSDictionary.class] && ![target[@"version"] isEqual:before]) return CCFail(@"壁纸已变化，请重新查找后再应用。");
         NSData *data = wq_read(path, 0, NULL);
         if (before && [before isEqual:wq_file_version(path)] && !CCKeepData(root, path, data))
             wq_log(@"CarVista: could not preserve repair copy for %@", path);
@@ -514,6 +515,101 @@ static BOOL CCPreserveOriginal(NSString *path, NSString **errorText) {
     [json writeToFile:[dest stringByAppendingPathExtension:@"json"] atomically:YES];
     return YES;
 }
+static NSString *CCSnapshotRoot(void) {
+    return [CCOriginalsDirectory().stringByDeletingLastPathComponent stringByAppendingPathComponent:@"ApplicationBackups"];
+}
++ (NSArray<NSDictionary *> *)snapshots {
+    NSMutableArray *items = NSMutableArray.new;
+    for (NSString *name in [NSFileManager.defaultManager contentsOfDirectoryAtPath:CCSnapshotRoot() error:nil]) {
+        if (![[NSUUID alloc] initWithUUIDString:name]) continue;
+        NSString *folder = [CCSnapshotRoot() stringByAppendingPathComponent:name];
+        NSDictionary *record = [NSDictionary dictionaryWithContentsOfFile:[folder stringByAppendingPathComponent:@"manifest.plist"]];
+        if (![record[@"files"] isKindOfClass:NSArray.class] || ![record[@"date"] isKindOfClass:NSDate.class]) continue;
+        [items addObject:@{@"path":folder, @"name":[NSString stringWithFormat:@"应用前备份 · %lu 个文件", (unsigned long)[record[@"files"] count]], @"date":record[@"date"]}];
+    }
+    return [items sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) { return [b[@"date"] compare:a[@"date"]]; }];
+}
++ (NSDictionary *)saveSnapshot:(NSArray<NSDictionary *> *)targets {
+    NSString *folder = [CCSnapshotRoot() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    if (![NSFileManager.defaultManager createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil]) return CCFail(@"无法保存应用前备份。");
+    NSMutableArray *files = NSMutableArray.new;
+    for (NSDictionary *target in targets) {
+        NSString *path = target[@"path"];
+        if (![path isKindOfClass:NSString.class] || !CCAllowed(path)) return CCFail(@"备份目标已变化，请重新查找。");
+        NSDictionary *before = wq_file_version(path);
+        if ([target[@"version"] isKindOfClass:NSDictionary.class] && ![target[@"version"] isEqual:before]) return CCFail(@"壁纸已变化，请重新查找后再应用。");
+        NSData *data = wq_read(path, 0, NULL);
+        if (!before || !data.length || ![before isEqual:wq_file_version(path)]) return CCFail(@"无法读取当前壁纸，未开始替换。");
+        NSString *name = [NSString stringWithFormat:@"%lu.cpbitmap", (unsigned long)files.count];
+        NSString *copy = [folder stringByAppendingPathComponent:name];
+        if (![data writeToFile:copy options:NSDataWritingAtomic error:nil] || ![data isEqualToData:[NSData dataWithContentsOfFile:copy]]) return CCFail(@"备份校验失败，未开始替换。");
+        [files addObject:@{@"target":path, @"file":name, @"digest":CCDigest(data)}];
+    }
+    if (![@{@"date":NSDate.date, @"files":files} writeToFile:[folder stringByAppendingPathComponent:@"manifest.plist"] atomically:YES]) return CCFail(@"无法保存备份记录。");
+    NSArray *all = [self snapshots];
+    for (NSUInteger i = 10; i < all.count; i++) {
+        NSString *old = all[i][@"path"];
+        if ([old.stringByDeletingLastPathComponent isEqualToString:CCSnapshotRoot()] && [[NSUUID alloc] initWithUUIDString:old.lastPathComponent]) [NSFileManager.defaultManager removeItemAtPath:old error:nil];
+    }
+    return @{@"ok":@YES};
+}
++ (NSDictionary *)restoreDefaults:(NSDictionary<NSString *, NSData *> *)images {
+    NSSet *allowed = [NSSet setWithArray:@[@"Blue", @"Brown", @"DarkBlue", @"Green", @"Grey", @"Hero", @"Purple", @"Red", @"Teal"]];
+    if (images.count != 12) return CCFail(@"默认壁纸不完整，请重新下载。");
+    NSMutableSet *groups = NSMutableSet.new;
+    for (NSString *key in images) {
+        NSArray *parts = [key componentsSeparatedByString:@"-"];
+        if (parts.count != 2 || ![allowed containsObject:parts[0]] || ![@[@"Dark", @"Light"] containsObject:parts[1]]) return CCFail(@"默认壁纸配置无效。");
+        [groups addObject:parts[0]];
+    }
+    if (groups.count != 6) return CCFail(@"默认壁纸配置无效。");
+    NSDictionary *found = [self discover:YES];
+    NSString *root = found[@"root"];
+    if (![found[@"ok"] boolValue] || !root.length || !CCRegisterRoot(root)) return CCFail(found[@"message"] ?: @"未找到车机壁纸目录。");
+    NSString *directory = [root stringByAppendingPathComponent:@"Library/Caches/MappedImageCache/com.apple.CarPlayApp.wallpaper-images"];
+    NSString *cursor = root;
+    for (NSString *part in @[@"Library", @"Caches", @"MappedImageCache", @"com.apple.CarPlayApp.wallpaper-images"]) {
+        cursor = [cursor stringByAppendingPathComponent:part];
+        struct stat st;
+        if (!wq_stat(cursor, &st)) { if (errno != ENOENT || !wq_create_dir(cursor, NULL)) return CCFail(@"无法创建壁纸缓存目录。"); }
+        else if (!S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) return CCFail(@"壁纸缓存目录不可用。");
+    }
+    NSMutableDictionary *encoded = NSMutableDictionary.new;
+    NSMutableArray *existing = NSMutableArray.new;
+    NSString *temp = [CCOriginalsDirectory().stringByDeletingLastPathComponent stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    [NSFileManager.defaultManager createDirectoryAtPath:temp withIntermediateDirectories:YES attributes:nil error:nil];
+    for (NSString *key in images) {
+        UIImage *image = [UIImage imageWithData:images[key]];
+        NSString *source = [temp stringByAppendingPathComponent:[key stringByAppendingPathExtension:@"cpbitmap"]];
+        NSDictionary *result = image ? [self encode:image to:source] : CCFail(@"原图无效。");
+        if (![result[@"ok"] boolValue]) return result;
+        NSString *name = [NSString stringWithFormat:@"CARWallpaper%@-16.cpbitmap", key];
+        NSString *target = [directory stringByAppendingPathComponent:name];
+        NSData *data = [NSData dataWithContentsOfFile:source];
+        encoded[target] = data;
+        struct stat st;
+        if (wq_stat(target, &st)) { if (!S_ISREG(st.st_mode) || !CCAllowed(target)) return CCFail(@"目标缓存不可写入。"); [existing addObject:@{@"path":target}]; }
+        else if (errno != ENOENT) return CCFail(@"无法读取目标缓存。");
+    }
+    NSDictionary *saved = [self saveSnapshot:existing];
+    if (![saved[@"ok"] boolValue]) return saved;
+    NSUInteger completed = 0;
+    for (NSString *target in [[encoded allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+        NSData *data = encoded[target];
+        NSDictionary *version = wq_file_version(target);
+        NSString *error = nil;
+        BOOL ok = version ? wq_write_if_unchanged_get_version(target, data, version, NULL, &error) : wq_create_file(target, data, &error);
+        if (!ok || ![wq_read(target, 0, NULL) isEqualToData:data]) return CCFail([NSString stringWithFormat:@"已恢复 %lu/12 个文件。%@", (unsigned long)completed, error ?: @"文件校验失败，可恢复应用前备份。"]);
+        wq_set_user_immutable(target);
+        CCKeepData(root, target, data);
+        completed++;
+    }
+    for (NSString *target in encoded) {
+        if (![wq_read(target, 0, NULL) isEqualToData:encoded[target]]) return CCFail(@"恢复后复核未通过，请恢复应用前备份。");
+    }
+    [NSFileManager.defaultManager removeItemAtPath:temp error:nil];
+    return @{@"ok":@YES, @"message":@"默认壁纸已恢复。请重启 iPhone 后重新连接 CarPlay。"};
+}
 + (NSDictionary *)apply:(NSDictionary *)target source:(NSString *)source {
     NSString *path = target[@"path"];
     if (![path isKindOfClass:NSString.class] || !CCAllowed(path)) return CCFail(@"目标不属于已确认的 CarPlayWallpaper 缓存，拒绝写入");
@@ -632,6 +728,31 @@ static void CCAdoptExistingOriginals(void) {
 }
 + (NSDictionary *)restore:(NSString *)backup {
     CCSetup();
+    if ([backup.stringByDeletingLastPathComponent isEqualToString:CCSnapshotRoot()] && [[NSUUID alloc] initWithUUIDString:backup.lastPathComponent]) {
+        [self discover:YES];
+        NSDictionary *manifest = [NSDictionary dictionaryWithContentsOfFile:[backup stringByAppendingPathComponent:@"manifest.plist"]];
+        NSArray *files = manifest[@"files"];
+        if (![files isKindOfClass:NSArray.class] || !files.count) return CCFail(@"此备份没有可恢复的文件。");
+        NSMutableArray *targets = NSMutableArray.new;
+        NSMutableDictionary *contents = NSMutableDictionary.new;
+        for (NSDictionary *item in files) {
+            NSString *file = item[@"file"], *target = item[@"target"];
+            if (![file isKindOfClass:NSString.class] || ![file.lastPathComponent isEqualToString:file] || !CCAllowed(target)) return CCFail(@"备份目标不可用。");
+            NSData *data = [NSData dataWithContentsOfFile:[backup stringByAppendingPathComponent:file]];
+            if (!data.length || ![CCDigest(data) isEqual:item[@"digest"]]) return CCFail(@"备份完整性检查失败。");
+            contents[target] = data;
+            [targets addObject:@{@"path":target}];
+        }
+        NSDictionary *snapshot = [self saveSnapshot:targets];
+        if (![snapshot[@"ok"] boolValue]) return snapshot;
+        for (NSDictionary *item in files) {
+            NSData *data = contents[item[@"target"]];
+            NSString *target = item[@"target"], *error = nil;
+            if (!wq_write_if_unchanged_get_version(target, data, wq_file_version(target), NULL, &error)) return CCFail(error);
+            wq_set_user_immutable(target);
+        }
+        return @{@"ok":@YES, @"message":@"备份已恢复，请重新连接 CarPlay 查看效果。"};
+    }
     NSString *original = nil;
     NSString *originalRoot = [CCCanonical(CCOriginalsDirectory()) stringByAppendingString:@"/"];
     if ([CCCanonical(backup) hasPrefix:originalRoot]) {
@@ -648,6 +769,8 @@ static void CCAdoptExistingOriginals(void) {
     NSData *data = [NSData dataWithContentsOfFile:backup options:NSDataReadingMappedIfSafe error:nil];
     if (!CCDecode(data)) return CCFail(@"备份无法解码，拒绝恢复");
     NSString *error = nil;
+    NSDictionary *snapshot = [self saveSnapshot:@[@{@"path":original, @"version":expected}]];
+    if (![snapshot[@"ok"] boolValue]) return snapshot;
     if (!wq_write_if_unchanged_get_version(original, data, expected, NULL, &error)) return CCFail(error);
     CCKeepData(CCRootForPath(original), original, data);
     if (!wq_set_user_immutable(original)) {

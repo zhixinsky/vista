@@ -8,6 +8,9 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSDictionary *)discover:(BOOL)allowFullScan;
 + (nullable UIImage *)preview:(NSString *)path;
 + (NSDictionary *)encode:(UIImage *)image to:(NSString *)path;
++ (NSDictionary *)saveSnapshot:(NSArray<NSDictionary *> *)targets;
++ (NSArray<NSDictionary *> *)snapshots;
++ (NSDictionary *)restoreDefaults:(NSDictionary<NSString *, NSData *> *)images;
 + (NSDictionary *)apply:(NSDictionary *)target source:(NSString *)source;
 + (NSDictionary *)verify:(NSDictionary *)target source:(NSString *)source;
 + (NSDictionary *)repairCache:(NSDictionary *)target;
