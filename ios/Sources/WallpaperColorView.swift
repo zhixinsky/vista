@@ -138,7 +138,6 @@ struct WallpaperColorView: View {
                 if selectedSection == .region {
                 Text("仅针对图片左侧区域调节，向右自然渐变，不影响其余区域。")
                     .font(.caption).foregroundStyle(.secondary)
-                {
                     VStack(alignment: .leading, spacing: 12) {
                         slider("亮度", value: edgeValue(\.brightness), range: -0.50...1, neutral: 0, format: "%+.0f%%")
                         slider("曝光", value: regionExposure, range: -1...0.85, neutral: 0,
@@ -183,12 +182,10 @@ struct WallpaperColorView: View {
                             }
                         }
                     }
-                }
 
                 } else {
                 Text("作用于整张图片，可与区域调节叠加。")
                     .font(.caption).foregroundStyle(.secondary)
-                {
                     let mask = adjustment.mask ?? savedMask
                     VStack(alignment: .leading, spacing: 14) {
                         slider("蒙版透明度", value: Binding(
@@ -227,7 +224,6 @@ struct WallpaperColorView: View {
                             }.padding(.top, 8)
                         }
                     }
-                }
 
                 }
 
