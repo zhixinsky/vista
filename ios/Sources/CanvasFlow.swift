@@ -430,22 +430,61 @@ struct ApplyWallpaperView: View {
     private var modes: Set<String> { Set(entries.map(\.mode)) }
     var body: some View {
         List {
-            Section {
-                if let completed {
-                    Label(finished ? "已写入并备份，待车机刷新" : completed == 0 ? "写入失败" : "部分壁纸已写入",
-                          systemImage: finished ? "checkmark.circle" : "exclamationmark.triangle")
-                        .font(.headline)
-                    Text(resultMessage).font(.subheadline)
-                } else {
-                    Text("选择要替换的车机壁纸。原壁纸会自动备份。")
+            if let completed {
+                Section {
+                    VStack(alignment: .leading, spacing: 13) {
+                        HStack(spacing: 9) {
+                            Image(systemName: finished ? "checkmark.circle" : "exclamationmark.triangle")
+                                .foregroundStyle(finished ? Color.green : Color.orange)
+                                .font(.system(size: 19, weight: .medium))
+                            Text(finished ? "壁纸已写入，等待车机刷新" : completed == 0 ? "写入失败" : "部分壁纸已写入")
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        Divider()
+                        Text(resultMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if finished {
+                            Text("重新连接 CarPlay 后即可查看新壁纸。建议先重启 iPhone。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
                 }
-                if model.busy { ProgressView("正在处理，请保持应用在前台…") }
+                .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 0, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            } else {
+                Section {
+                    Text("选择要替换的车机壁纸。原壁纸会自动备份。")
+                    if model.busy { ProgressView("正在处理，请保持应用在前台…") }
+                }
             }
             if let completed, completed > 0 {
                 Section {
-                    Text("壁纸已写入。点「注销」会重启系统界面，返回桌面后重新连接车机，新图才会显示。也可以先不注销，稍后手动重启 iPhone。")
-                    WallpaperRefreshButton(title: "注销", systemImage: "power")
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("立即刷新系统界面")
+                            .font(.subheadline.weight(.semibold))
+                        Text("点击下方按钮尝试刷新系统界面，可能短暂黑屏或返回桌面。请在停车状态下操作。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        WallpaperRefreshButton(title: "注销并刷新", systemImage: "power")
+                        Text("若刷新无效，请手动重启 iPhone 后重新连接 CarPlay。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
                 }
+                .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 0, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
             if !finished {
                 if !model.targets.isEmpty {
