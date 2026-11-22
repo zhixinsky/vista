@@ -60,6 +60,8 @@ struct WallpaperAdjustmentView: View {
     @State private var customWidth = ""
     @State private var customHeight = ""
     @State private var customSizeError: String?
+    @State private var customEditingWidth = true
+    @State private var customReplaceOnInput = true
     @State private var frameDragStart: WallpaperPixelCrop?
     @State private var cornerDragStart: WallpaperPixelCrop?
 
@@ -238,17 +240,21 @@ struct WallpaperAdjustmentView: View {
                 ZStack {
                     Color.black.opacity(0.32).ignoresSafeArea()
                         .accessibilityHidden(true)
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .center, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 10) {
                             Text("自定义尺寸").font(.headline)
-                            HStack(spacing: 12) {
-                                customSizeField("宽度", text: $customWidth)
-                                customSizeField("高度", text: $customHeight)
+                            customSizeField("宽度", value: customWidth, selected: customEditingWidth) {
+                                customEditingWidth = true
+                                customReplaceOnInput = true
                             }
-                            Text("原图：\(Int(pixels.width)) × \(Int(pixels.height)) 像素，裁剪框可移动。")
-                                .font(.footnote).foregroundStyle(.secondary)
+                            customSizeField("高度", value: customHeight, selected: !customEditingWidth) {
+                                customEditingWidth = false
+                                customReplaceOnInput = true
+                            }
+                            Text("原图：\(Int(pixels.width)) × \(Int(pixels.height)) 像素")
+                                .font(.caption).foregroundStyle(.secondary)
                             if let customSizeError {
-                                Text(customSizeError).font(.footnote).foregroundStyle(.red)
+                                Text(customSizeError).font(.caption).foregroundStyle(.red)
                             }
                             HStack {
                                 Button("取消") { showsCustomSize = false }
@@ -257,12 +263,26 @@ struct WallpaperAdjustmentView: View {
                                     .buttonStyle(.borderedProminent)
                             }
                         }
-                        .padding(16)
-                        .frame(maxWidth: 480, alignment: .leading)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                        .padding(12)
+                        .frame(maxWidth: 260, alignment: .leading)
+                        VStack(spacing: 5) {
+                            ForEach([ ["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["清空", "0", "删除"] ], id: \.self) { row in
+                                HStack(spacing: 5) {
+                                    ForEach(row, id: \.self) { key in
+                                        Button(key) { enterCustomDigit(key) }
+                                            .font(.subheadline.weight(.medium))
+                                            .frame(maxWidth: .infinity, minHeight: 36)
+                                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 7))
+                                            .contentShape(Rectangle())
+                                    }
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: 180)
                     }
-                    .scrollBounceBehavior(.basedOnSize)
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(10)
                 }
                 .accessibilityAddTraits(.isModal)
                 .accessibilityAction(.escape) { showsCustomSize = false }
@@ -270,17 +290,37 @@ struct WallpaperAdjustmentView: View {
         }
     }
 
-    private func customSizeField(_ title: String, text: Binding<String>) -> some View {
-        HStack(spacing: 6) {
-            Text(title)
-            TextField("像素", text: text)
-                .keyboardType(.numberPad)
-                .multilineTextAlignment(.trailing)
-                .accessibilityLabel("\(title)像素")
-            Text("px").foregroundStyle(.secondary)
+    private func customSizeField(_ title: String, value: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(value.isEmpty ? "请输入" : value)
+                    .foregroundStyle(value.isEmpty ? Color.secondary : Color.primary)
+                Text("px").foregroundStyle(.secondary)
+            }
+            .padding(8)
+            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? CanvasTheme.accent : .clear, lineWidth: 2))
+            .contentShape(Rectangle())
         }
-        .padding(8)
-        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title)，\(value.isEmpty ? "未填写" : value + "像素")")
+    }
+
+    private func enterCustomDigit(_ key: String) {
+        var value = customEditingWidth ? customWidth : customHeight
+        if key == "清空" {
+            value = ""
+        } else if key == "删除" {
+            if !value.isEmpty { value.removeLast() }
+        } else {
+            if customReplaceOnInput { value = "" }
+            if value.count < 9 { value.append(key) }
+        }
+        customReplaceOnInput = false
+        customSizeError = nil
+        if customEditingWidth { customWidth = value } else { customHeight = value }
     }
 
     private func applyCustomSize() {
@@ -315,6 +355,8 @@ struct WallpaperAdjustmentView: View {
                             customWidth = crop.map { String(Int($0.rect.width)) } ?? ""
                             customHeight = crop.map { String(Int($0.rect.height)) } ?? ""
                             customSizeError = nil
+                            customEditingWidth = true
+                            customReplaceOnInput = true
                             showsCustomSize = true
                         } else {
                             selectRatio(option)
