@@ -1,35 +1,55 @@
 name: Build CarVista IPA
+
 on:
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   build:
     runs-on: macos-26
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+
       - name: Install project generator
         run: brew install xcodegen
+
       - name: Generate project and compile for physical iPhone
         working-directory: ios
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
           xcodebuild -version
           xcodegen generate
+          # Preserve the existing app version; increment the build number per workflow run.
+          # Offset 15 assumes the existing released build was 15.
+          BUILD_NUMBER=$((BUILD_NUMBER + 15))
+          echo "Building CarVista build ${BUILD_NUMBER}"
           xcodebuild -project CarVista.xcodeproj \
             -scheme CarVista -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath DerivedData \
+            CURRENT_PROJECT_VERSION="${BUILD_NUMBER}" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
       - name: Package IPA for re-signing with App Group
         working-directory: ios
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
+          BUILD_NUMBER=$((BUILD_NUMBER + 15))
           app='DerivedData/Build/Products/Release-iphoneos/CarVista.app'
           test -f "$app/CarVista"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CarVistaBackendAPIVersion' "$app/Info.plist")" = '2'
           test "$(/usr/libexec/PlistBuddy -c 'Print :CarVistaUpdateBundleID' "$app/Info.plist")" = 'local.carvista'
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist")
+          ACTUAL_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist")
+          test "$ACTUAL_BUILD" = "$BUILD_NUMBER" || { echo "Build mismatch: expected $BUILD_NUMBER, got $ACTUAL_BUILD"; exit 1; }
+          echo "CarVista ${VERSION} (${ACTUAL_BUILD})"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "$app/Info.plist"
           test -d "$app/LaunchScreen.storyboardc"
@@ -39,11 +59,14 @@ jobs:
           mkdir -p output/Payload
           ditto "$app" output/Payload/CarVista.app
           cd output
-          /usr/bin/zip -qry CarVista-resign.ipa Payload
-          shasum -a 256 CarVista-resign.ipa > SHA256SUMS
+          IPA_NAME="CarVista-v${VERSION}-build${ACTUAL_BUILD}.ipa"
+          /usr/bin/zip -qry "$IPA_NAME" Payload
+          shasum -a 256 "$IPA_NAME" > SHA256SUMS
+          echo "Generated $IPA_NAME"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: CarVista-resign
+          name: CarVista-resign-${{ github.run_number }}
           path: |
             ios/output/*.ipa
             ios/output/SHA256SUMS
