@@ -3,13 +3,13 @@ import SwiftUI
 
 struct WallpaperAdjustmentView: View {
     private enum Ratio: String, CaseIterable {
-        case free = "自由裁剪", standard = "标准 4:3", wide = "宽屏 16:9", ultrawide = "别克大联屏", buick = "车机全图裁剪"
+        case free = "自由裁剪", custom = "自定义尺寸", standard = "标准 4:3", wide = "宽屏 16:9", ultrawide = "别克大联屏", buick = "车机全图裁剪"
 
-        var allowsCornerResize: Bool { self != .free && self != .buick }
+        var allowsCornerResize: Bool { self != .free && self != .buick && self != .custom }
 
         var units: (width: Int, height: Int)? {
             switch self {
-            case .free: return nil
+            case .free, .custom: return nil
             case .wide: return (16, 9)
             case .ultrawide: return (87, 23)
             case .standard: return (4, 3)
@@ -56,6 +56,10 @@ struct WallpaperAdjustmentView: View {
     @State private var ratio: Ratio = .free
     @State private var showsRatios = false
     @State private var showsBuickSizeWarning = false
+    @State private var showsCustomSize = false
+    @State private var customWidth = ""
+    @State private var customHeight = ""
+    @State private var customSizeError: String?
     @State private var frameDragStart: WallpaperPixelCrop?
     @State private var cornerDragStart: WallpaperPixelCrop?
 
@@ -229,6 +233,62 @@ struct WallpaperAdjustmentView: View {
             }
         }
         .tint(CanvasTheme.accent)
+        .sheet(isPresented: $showsCustomSize) {
+            NavigationStack {
+                Form {
+                    Section {
+                        HStack {
+                            Text("宽度")
+                            TextField("像素", text: $customWidth)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                            Text("px").foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Text("高度")
+                            TextField("像素", text: $customHeight)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                            Text("px").foregroundStyle(.secondary)
+                        }
+                    } footer: {
+                        Text("原图尺寸：\(Int(pixels.width)) × \(Int(pixels.height)) 像素。裁剪框可移动，尺寸保持不变。")
+                    }
+                    if let customSizeError {
+                        Text(customSizeError).foregroundStyle(.red)
+                    }
+                }
+                .navigationTitle("自定义尺寸")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("取消") { showsCustomSize = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("确定") { applyCustomSize() }
+                    }
+                }
+            }
+            .tint(CanvasTheme.accent)
+        }
+    }
+
+    private func applyCustomSize() {
+        guard !cropLocked, let current = crop else { return }
+        guard let width = Int(customWidth), let height = Int(customHeight), width > 0, height > 0 else {
+            customSizeError = "请输入大于 0 的整数像素。"
+            return
+        }
+        guard width <= Int(pixels.width), height <= Int(pixels.height) else {
+            customSizeError = "裁剪尺寸不能超过原图尺寸。"
+            return
+        }
+        let left = min(Int(pixels.width) - width, max(0, Int((current.rect.midX - CGFloat(width) / 2).rounded())))
+        let top = min(Int(pixels.height) - height, max(0, Int((current.rect.midY - CGFloat(height) / 2).rounded())))
+        crop = WallpaperPixelCrop(left: left, top: top, right: left + width, bottom: top + height)
+        ratio = .custom
+        zoom = 1
+        showsCustomSize = false
     }
 
     private var ratioOverlay: some View {
@@ -240,8 +300,15 @@ struct WallpaperAdjustmentView: View {
             VStack(spacing: 0) {
                 ForEach(Ratio.allCases, id: \.self) { option in
                     Button {
-                        selectRatio(option)
                         showsRatios = false
+                        if option == .custom {
+                            customWidth = crop.map { String(Int($0.rect.width)) } ?? ""
+                            customHeight = crop.map { String(Int($0.rect.height)) } ?? ""
+                            customSizeError = nil
+                            showsCustomSize = true
+                        } else {
+                            selectRatio(option)
+                        }
                     } label: {
                         HStack {
                             Text(option.rawValue)
