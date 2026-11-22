@@ -41,6 +41,7 @@ struct WallpaperAdjustmentView: View {
     let photo: MakerPhoto
     let save: (WallpaperPixelCrop, WallpaperColorAdjustment) -> Void
     @State private var colorEditing: Bool
+    @State private var colorResetToken = 0
     @State private var color: WallpaperColorAdjustment
     @State private var preview: UIImage?
     @State private var pixels = CGSize.zero
@@ -77,7 +78,7 @@ struct WallpaperAdjustmentView: View {
         NavigationStack {
             Group {
                 if colorEditing, crop != nil {
-                    WallpaperColorView(photo: croppedPhoto, embedded: true) { color = $0 }
+                    WallpaperColorView(photo: croppedPhoto, embedded: true, resetToken: colorResetToken) { color = $0 }
                 } else {
                     VStack(spacing: 4) {
                         GeometryReader { geometry in
@@ -166,7 +167,9 @@ struct WallpaperAdjustmentView: View {
                 }
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItemGroup(placement: .confirmationAction) {
-                    if !colorEditing {
+                    if colorEditing {
+                        Button("还原") { colorResetToken += 1 }
+                    } else {
                         Button { showsRatios.toggle() } label: {
                             Label(ratio == .free ? "比例" : ratio.rawValue, systemImage: "aspectratio")
                         }.disabled(crop == nil || cropLocked).accessibilityIdentifier("crop.ratio")
