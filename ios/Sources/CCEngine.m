@@ -45,16 +45,24 @@ static BOOL CCRegisterRoot(NSString *path) {
     return YES;
 }
 static NSString *CCKeptDirectory(NSString *root);
+static NSString *CCWallpaperDirectory(NSString *root) {
+    return [CCCanonical(root) stringByAppendingPathComponent:@"Library/Caches/MappedImageCache/com.apple.CarPlayApp.wallpaper-images"];
+}
+static BOOL CCWallpaperName(NSString *name) {
+    static NSRegularExpression *pattern;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ pattern = [NSRegularExpression regularExpressionWithPattern:@"^CARWallpaper[A-Za-z0-9]+-(Dark|Light)-[0-9]+\\.cpbitmap$" options:0 error:nil]; });
+    return [pattern firstMatchInString:name options:0 range:NSMakeRange(0, name.length)] != nil;
+}
+
 static BOOL CCAllowed(NSString *path) {
     NSString *p = CCCanonical(path);
-    if (![p.pathExtension.lowercaseString isEqualToString:@"cpbitmap"]) return NO;
+    if (!CCWallpaperName(p.lastPathComponent)) return NO;
     NSArray *roots;
     @synchronized (CCRoots) { roots = CCRoots.allObjects; }
     for (NSString *root in roots) {
         // Recheck identity on every mutation; never accept an arbitrary path.
-        NSString *prefix = [root stringByAppendingString:@"/"];
-        NSString *kept = [CCKeptDirectory(root) stringByAppendingString:@"/"];
-        if (![p hasPrefix:prefix] || [p hasPrefix:kept] || ![wq_container_label(root) isEqualToString:CCIdentifier]) continue;
+        if (![p.stringByDeletingLastPathComponent isEqualToString:CCWallpaperDirectory(root)] || ![wq_container_label(root) isEqualToString:CCIdentifier]) continue;
         NSString *cursor = p;
         while ([cursor hasPrefix:[root stringByAppendingString:@"/"]]) {
             struct stat st;
@@ -173,8 +181,18 @@ static NSArray *CCWalkFrom(NSString *root, NSString *start, NSString *skip, NSMu
     return files;
 }
 static NSArray *CCWalkContainer(NSString *root, NSMutableArray *issues, WQScanCancellation *scan) {
-    NSString *skip = [CCCanonical(CCKeptDirectory(root)) stringByAppendingString:@"/"];
-    return CCWalkFrom(root, root, skip, issues, scan);
+    NSString *directory = CCWallpaperDirectory(root);
+    struct stat st;
+    if (!wq_stat(directory, &st) || !S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) {
+        [issues addObject:@"未找到车机壁纸图片缓存目录"];
+        return @[];
+    }
+    NSArray *files = CCWalkFrom(root, directory, nil, issues, scan);
+    NSPredicate *valid = [NSPredicate predicateWithBlock:^BOOL(NSDictionary *file, NSDictionary *bindings) {
+        NSString *path = file[@"path"];
+        return [path.stringByDeletingLastPathComponent isEqualToString:directory] && CCWallpaperName(path.lastPathComponent) && CCAllowed(path);
+    }];
+    return [files filteredArrayUsingPredicate:valid];
 }
 
 static void CCKeepWallpapers(NSString *root, NSArray *files);
@@ -395,7 +413,7 @@ static NSArray *CCIncludeKnownTargets(NSString *root, NSArray *files) {
     for (NSString *path in records) {
         NSDictionary *record = records[path];
         if (![record isKindOfClass:NSDictionary.class] || ![record[@"root"] isEqual:CCCanonical(root)] ||
-            ![path hasPrefix:[CCCanonical(root) stringByAppendingString:@"/"]] || [seen containsObject:path]) continue;
+            ![path.stringByDeletingLastPathComponent isEqualToString:CCWallpaperDirectory(root)] || !CCWallpaperName(path.lastPathComponent) || [seen containsObject:path]) continue;
         struct stat st;
         errno = 0;
         BOOL exists = wq_stat(path, &st);
@@ -566,7 +584,8 @@ static NSString *CCSnapshotRoot(void) {
     NSDictionary *found = [self discover:YES];
     NSString *root = found[@"root"];
     if (![found[@"ok"] boolValue] || !root.length || !CCRegisterRoot(root)) return CCFail(found[@"message"] ?: @"未找到车机壁纸目录。");
-    NSString *directory = [root stringByAppendingPathComponent:@"Library/Caches/MappedImageCache/com.apple.CarPlayApp.wallpaper-images"];
+    // Use the CarPlay wallpaper image cache, not unrelated files in Caches.
+    NSString *directory = CCWallpaperDirectory(root);
     NSString *cursor = root;
     for (NSString *part in @[@"Library", @"Caches", @"MappedImageCache", @"com.apple.CarPlayApp.wallpaper-images"]) {
         cursor = [cursor stringByAppendingPathComponent:part];
@@ -578,12 +597,18 @@ static NSString *CCSnapshotRoot(void) {
     NSMutableArray *existing = NSMutableArray.new;
     NSString *temp = [CCOriginalsDirectory().stringByDeletingLastPathComponent stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     [NSFileManager.defaultManager createDirectoryAtPath:temp withIntermediateDirectories:YES attributes:nil error:nil];
+    NSArray *existingNames = wq_list(directory, NULL);
+    if (!existingNames) return CCFail(@"无法读取壁纸缓存目录。");
     for (NSString *key in images) {
         UIImage *image = [UIImage imageWithData:images[key]];
         NSString *source = [temp stringByAppendingPathComponent:[key stringByAppendingPathExtension:@"cpbitmap"]];
         NSDictionary *result = image ? [self encode:image to:source] : CCFail(@"原图无效。");
         if (![result[@"ok"] boolValue]) return result;
-        NSString *name = [NSString stringWithFormat:@"CARWallpaper%@-16.cpbitmap", key];
+        NSString *prefix = [NSString stringWithFormat:@"CARWallpaper%@-", key];
+        NSMutableArray *matches = NSMutableArray.new;
+        for (NSString *name in existingNames) if (CCWallpaperName(name) && [name hasPrefix:prefix]) [matches addObject:name];
+        if (matches.count > 1) return CCFail([NSString stringWithFormat:@"%@ 存在多个缓存版本，请先检查。", key]);
+        NSString *name = matches.firstObject ?: [NSString stringWithFormat:@"CARWallpaper%@-16.cpbitmap", key];
         NSString *target = [directory stringByAppendingPathComponent:name];
         NSData *data = [NSData dataWithContentsOfFile:source];
         encoded[target] = data;
