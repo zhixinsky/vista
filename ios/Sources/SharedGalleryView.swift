@@ -97,6 +97,16 @@ struct SharedWallpaperGalleryView: View {
                             .clipped()
                             .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(alignment: .topTrailing) {
+                                Text("\(item.width) × \(item.height)")
+                                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 5)
+                                    .background(.black.opacity(0.58), in: Capsule())
+                                    .padding(10)
+                                    .allowsHitTesting(false)
+                            }
                             .overlay {
                                 if busyID == item.id { WallpaperDownloadCover() }
                             }
@@ -147,7 +157,6 @@ struct SharedWallpaperGalleryView: View {
                             if !item.intro.isEmpty {
                                 Text(item.intro).font(.caption).foregroundStyle(.secondary).lineLimit(3)
                             }
-                            Text("\(item.width) × \(item.height)").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
