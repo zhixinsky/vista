@@ -210,7 +210,7 @@ struct WallpaperAdjustmentView: View {
                 }
             }
         }
-        .accessibilityHidden(showsBuickSizeWarning)
+        .accessibilityHidden(showsBuickSizeWarning || showsCustomSize)
         .overlay {
             if showsBuickSizeWarning {
                 ZStack {
@@ -233,44 +233,54 @@ struct WallpaperAdjustmentView: View {
             }
         }
         .tint(CanvasTheme.accent)
-        .sheet(isPresented: $showsCustomSize) {
-            NavigationStack {
-                Form {
-                    Section {
-                        HStack {
-                            Text("宽度")
-                            TextField("像素", text: $customWidth)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.trailing)
-                            Text("px").foregroundStyle(.secondary)
+        .overlay {
+            if showsCustomSize {
+                ZStack {
+                    Color.black.opacity(0.32).ignoresSafeArea()
+                        .accessibilityHidden(true)
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("自定义尺寸").font(.headline)
+                            HStack(spacing: 12) {
+                                customSizeField("宽度", text: $customWidth)
+                                customSizeField("高度", text: $customHeight)
+                            }
+                            Text("原图：\(Int(pixels.width)) × \(Int(pixels.height)) 像素，裁剪框可移动。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                            if let customSizeError {
+                                Text(customSizeError).font(.footnote).foregroundStyle(.red)
+                            }
+                            HStack {
+                                Button("取消") { showsCustomSize = false }
+                                Spacer()
+                                Button("确定") { applyCustomSize() }
+                                    .buttonStyle(.borderedProminent)
+                            }
                         }
-                        HStack {
-                            Text("高度")
-                            TextField("像素", text: $customHeight)
-                                .keyboardType(.numberPad)
-                                .multilineTextAlignment(.trailing)
-                            Text("px").foregroundStyle(.secondary)
-                        }
-                    } footer: {
-                        Text("原图尺寸：\(Int(pixels.width)) × \(Int(pixels.height)) 像素。裁剪框可移动，尺寸保持不变。")
+                        .padding(16)
+                        .frame(maxWidth: 480, alignment: .leading)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                        .padding(12)
                     }
-                    if let customSizeError {
-                        Text(customSizeError).foregroundStyle(.red)
-                    }
+                    .scrollBounceBehavior(.basedOnSize)
                 }
-                .navigationTitle("自定义尺寸")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("取消") { showsCustomSize = false }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("确定") { applyCustomSize() }
-                    }
-                }
+                .accessibilityAddTraits(.isModal)
+                .accessibilityAction(.escape) { showsCustomSize = false }
             }
-            .tint(CanvasTheme.accent)
         }
+    }
+
+    private func customSizeField(_ title: String, text: Binding<String>) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+            TextField("像素", text: text)
+                .keyboardType(.numberPad)
+                .multilineTextAlignment(.trailing)
+                .accessibilityLabel("\(title)像素")
+            Text("px").foregroundStyle(.secondary)
+        }
+        .padding(8)
+        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private func applyCustomSize() {
