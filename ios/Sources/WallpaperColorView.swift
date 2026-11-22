@@ -126,20 +126,6 @@ struct WallpaperColorView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("色阶、RGB 通道及曲线只作用于左侧融合区域。")
                                     .font(.caption).foregroundStyle(.secondary)
-                                Toggle("精细调色", isOn: Binding(
-                                    get: { adjustment.leftEdge?.advanced != nil },
-                                    set: { enabled in
-                                        if enabled {
-                                            var grade = savedAdvanced
-                                            grade.local = true
-                                            adjustment.leftEdge?.advanced = grade
-                                        } else {
-                                            if let grade = adjustment.leftEdge?.advanced { savedAdvanced = grade }
-                                            adjustment.leftEdge?.advanced = nil
-                                        }
-                                        showOriginal = false
-                                    }
-                                ))
                                 if adjustment.leftEdge?.advanced != nil {
                                     WallpaperAdvancedControls(
                                         grade: Binding(
@@ -161,6 +147,15 @@ struct WallpaperColorView: View {
                                     )
                                 }
                             }.padding(.top, 8)
+                        }
+                        .onChange(of: showRegionMore) { _, expanded in
+                            guard expanded, adjustment.leftEdge != nil else { return }
+                            if adjustment.leftEdge?.advanced == nil {
+                                var grade = savedAdvanced
+                                grade.local = true
+                                adjustment.leftEdge?.advanced = grade
+                                showOriginal = false
+                            }
                         }
                     }
                 }
