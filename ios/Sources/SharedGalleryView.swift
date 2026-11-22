@@ -89,53 +89,52 @@ struct SharedWallpaperGalleryView: View {
                     Text(note).font(.caption).foregroundStyle(.secondary)
                 }
                 ForEach(items) { item in
-                    VStack(alignment: .leading, spacing: 8) {
-                        // Constrain the actual image and its hit-testing region to the visible card.
+                    VStack(alignment: .leading, spacing: 5) {
                         Button { select(item) } label: {
                             GalleryImage(url: item.previewURL, mode: .fill)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 180)
-                                .clipped()
-                                .background(Color(uiColor: .tertiarySystemFill))
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .contentShape(RoundedRectangle(cornerRadius: 12))
-                                .overlay {
-                                    if busyID == item.id { WallpaperDownloadCover() }
-                                }
+                            .frame(height: 180)
+                            .frame(maxWidth: .infinity)
+                            .clipped()
+                            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay {
+                                if busyID == item.id { WallpaperDownloadCover() }
+                            }
                         }
                         .frame(height: 180)
-                        .buttonStyle(.plain)
-                        .disabled(busyID != nil || model.busy)
-                        .accessibilityLabel("选择\(item.title)")
+                        .contentShape(Rectangle())
+                        .buttonStyle(.plain).disabled(busyID != nil || model.busy)
+                            .accessibilityLabel("选择\(item.title)")
                         HStack(alignment: .center, spacing: 8) {
-                            Text(item.title)
-                                .font(.subheadline)
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(item.title).font(.subheadline).lineLimit(1)
+                            Spacer(minLength: 4)
                             Button { like(item) } label: {
-                                HStack(spacing: 5) {
+                                HStack(spacing: 4) {
                                     Image(systemName: item.liked ? "heart.fill" : "heart")
-                                        .font(.system(size: 20, weight: .medium))
+                                        .font(.system(size: 18, weight: .medium))
                                         .foregroundStyle(item.liked ? Color.red : Color.secondary)
                                     Text("\(item.likes)")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(.system(size: 13, weight: .medium))
                                         .foregroundStyle(.primary)
                                 }
-                                .frame(minWidth: 54, minHeight: 44)
+                                .padding(.horizontal, 5)
+                                .frame(height: 28)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .disabled(busyID != nil || liking)
                             .accessibilityLabel(item.liked ? "取消点赞，目前 \(item.likes) 个赞" : "点赞，目前 \(item.likes) 个赞")
                             Button { commentItem = item } label: {
-                                HStack(spacing: 5) {
+                                HStack(spacing: 4) {
                                     Image(systemName: "bubble.left")
-                                        .font(.system(size: 20, weight: .medium))
+                                        .font(.system(size: 18, weight: .medium))
+                                        .foregroundStyle(.secondary)
                                     Text("\(item.comments ?? 0)")
-                                        .font(.system(size: 14, weight: .medium))
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(.primary)
                                 }
-                                .foregroundStyle(.secondary)
-                                .frame(minWidth: 54, minHeight: 44)
+                                .padding(.horizontal, 5)
+                                .frame(height: 28)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
