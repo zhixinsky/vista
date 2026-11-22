@@ -770,9 +770,8 @@ struct CanvasSettingsView: View {
                 NavigationLink { AppUpdateView() } label: { Label("检查 App 更新", systemImage: "arrow.down.circle") }
                 Text("基于公开研究实现。感谢 WQFiles 与 worse_query 作者。GPL-3.0-or-later。")
                     .font(.footnote).foregroundStyle(.secondary)
-                Text("制作记录和 CarPlay 失败信息会发送到服务端，用于改进兼容性。App 内不显示账号。")
+                Text("CarVista 错误日志及诊断信息会发送到服务端，用于改进兼容性和优化。")
                     .font(.footnote).foregroundStyle(.secondary)
-                Text("iOS 27.2 与实际车机效果仍需设备验证。").font(.footnote).foregroundStyle(.secondary)
             }
         }.navigationTitle("设置").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .sheet(isPresented: $guide) { CanvasGuideView() }
