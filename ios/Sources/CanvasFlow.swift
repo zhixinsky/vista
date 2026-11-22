@@ -465,8 +465,9 @@ struct ApplyWallpaperView: View {
                 }
                 ForEach(targetFamilies(model.targets)) { family in
                     Section(family.title) {
-                        if let target = family.targets.first(where: \.editable) ?? family.targets.first {
-                            ApplyTargetPreview(target: target)
+                        HStack(alignment: .top, spacing: 12) {
+                            variantPreview("深色", family: family)
+                            variantPreview("浅色", family: family)
                         }
                         writeButtons(family)
                     }
@@ -535,19 +536,39 @@ struct ApplyWallpaperView: View {
         return nil
     }
 
+    private func variantPreview(_ mode: String, family: TargetFamily) -> some View {
+        VStack(spacing: 6) {
+            if let target = family.targets.first(where: { $0.mode == mode && $0.editable }) {
+                ApplyTargetPreview(target: target)
+                    .frame(maxWidth: .infinity).frame(height: 95)
+                    .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+                    .clipped()
+            } else {
+                Label("暂无预览", systemImage: "photo")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity).frame(height: 95)
+                    .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
+            }
+            Text(mode).font(.caption).foregroundStyle(.secondary)
+        }.frame(maxWidth: .infinity)
+    }
+
     private func writeButtons(_ family: TargetFamily) -> some View {
         let dark = writableTarget("深色", in: family)
         let light = writableTarget("浅色", in: family)
         return Group {
+            HStack(spacing: 10) {
+                Button("写入深色壁纸") {
+                    if let dark { choose([dark], name: family.title) }
+                }.frame(maxWidth: .infinity).disabled(model.busy || dark == nil)
+                Button("写入浅色壁纸") {
+                    if let light { choose([light], name: family.title) }
+                }.frame(maxWidth: .infinity).disabled(model.busy || light == nil)
+            }.buttonStyle(.bordered).controlSize(.small)
             Button("同时写入深色和浅色壁纸") {
                 if let dark, let light { choose([dark, light], name: family.title) }
-            }.disabled(model.busy || dark == nil || light == nil)
-            Button("写入深色壁纸") {
-                if let dark { choose([dark], name: family.title) }
-            }.disabled(model.busy || dark == nil)
-            Button("写入浅色壁纸") {
-                if let light { choose([light], name: family.title) }
-            }.disabled(model.busy || light == nil)
+            }.frame(maxWidth: .infinity).buttonStyle(.borderedProminent)
+                .disabled(model.busy || dark == nil || light == nil)
             ForEach(["深色", "浅色"], id: \.self) { mode in
                 if let reason = unavailableReason(mode, in: family) {
                     Text(reason).font(.caption).foregroundStyle(.secondary)
