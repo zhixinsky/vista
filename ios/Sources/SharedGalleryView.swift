@@ -89,7 +89,7 @@ struct SharedWallpaperGalleryView: View {
                 if !note.isEmpty {
                     Text(note).font(.caption).foregroundStyle(.secondary)
                 }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], alignment: .leading, spacing: 16) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)], alignment: .leading, spacing: 16) {
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 5) {
                         Button { previewItem = item } label: {
