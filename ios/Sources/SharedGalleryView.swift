@@ -94,7 +94,7 @@ struct SharedWallpaperGalleryView: View {
                     VStack(alignment: .leading, spacing: 5) {
                         Button { previewItem = item } label: {
                             GalleryImage(url: item.previewURL, mode: .fill)
-                            .frame(height: 180)
+                            .frame(height: 125)
                             .frame(maxWidth: .infinity)
                             .clipped()
                             .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
@@ -113,23 +113,24 @@ struct SharedWallpaperGalleryView: View {
                                 if busyID == item.id { WallpaperDownloadCover() }
                             }
                         }
-                        .frame(height: 180)
+                        .frame(height: 125)
                         .contentShape(Rectangle())
                         .buttonStyle(.plain).disabled(busyID != nil || model.busy)
                             .accessibilityLabel("查看\(item.title)")
-                        HStack(alignment: .center, spacing: 8) {
-                            Text(item.title).font(.subheadline).lineLimit(1)
+                        HStack(alignment: .center, spacing: 3) {
+                            Text(item.title).font(.system(size: 12, weight: .medium)).lineLimit(1).layoutPriority(1)
                             Spacer(minLength: 4)
                             Button { like(item) } label: {
-                                HStack(spacing: 4) {
+                                HStack(spacing: 2) {
                                     Image(systemName: item.liked ? "heart.fill" : "heart")
-                                        .font(.system(size: 18, weight: .medium))
+                                        .font(.system(size: 13, weight: .medium))
                                         .foregroundStyle(item.liked ? Color.red : Color.secondary)
                                     Text("\(item.likes)")
-                                        .font(.system(size: 13, weight: .medium))
+                                        .font(.system(size: 11, weight: .medium))
                                         .foregroundStyle(.primary)
+                                        .lineLimit(1).fixedSize()
                                 }
-                                .padding(.horizontal, 5)
+                                .padding(.horizontal, 2)
                                 .frame(height: 28)
                                 .contentShape(Rectangle())
                             }
@@ -137,15 +138,16 @@ struct SharedWallpaperGalleryView: View {
                             .disabled(busyID != nil || liking)
                             .accessibilityLabel(item.liked ? "取消点赞，目前 \(item.likes) 个赞" : "点赞，目前 \(item.likes) 个赞")
                             Button { commentItem = item } label: {
-                                HStack(spacing: 4) {
+                                HStack(spacing: 2) {
                                     Image(systemName: "bubble.left")
-                                        .font(.system(size: 18, weight: .medium))
+                                        .font(.system(size: 13, weight: .medium))
                                         .foregroundStyle(.secondary)
                                     Text("\(item.comments ?? 0)")
-                                        .font(.system(size: 13, weight: .medium))
+                                        .font(.system(size: 11, weight: .medium))
                                         .foregroundStyle(.primary)
+                                        .lineLimit(1).fixedSize()
                                 }
-                                .padding(.horizontal, 5)
+                                .padding(.horizontal, 2)
                                 .frame(height: 28)
                                 .contentShape(Rectangle())
                             }
