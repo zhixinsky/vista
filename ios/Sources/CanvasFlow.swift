@@ -540,7 +540,7 @@ struct ApplyWallpaperView: View {
     private func familyCard(_ family: TargetFamily) -> some View {
         let dark = writableTarget("深色", in: family)
         let light = writableTarget("浅色", in: family)
-        return VStack(spacing: 10) {
+        return VStack(spacing: 9) {
             HStack(alignment: .top, spacing: 10) {
                 modeCard("深色", family: family, writable: dark)
                 modeCard("浅色", family: family, writable: light)
@@ -548,45 +548,54 @@ struct ApplyWallpaperView: View {
             Button {
                 if let dark, let light { choose([dark, light], name: family.title) }
             } label: {
-                Text("同时写入深色和浅色")
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 36)
+                HStack(spacing: 5) {
+                    Image(systemName: "square.on.square")
+                    Text("同时写入深色与浅色")
+                }
+                .font(.caption.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .frame(height: 30)
+                .foregroundStyle(CanvasTheme.accent)
+                .background(CanvasTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.borderedProminent)
-            .tint(CanvasTheme.accent)
+            .buttonStyle(.plain)
             .disabled(model.busy || dark == nil || light == nil)
+            .opacity(model.busy || dark == nil || light == nil ? 0.45 : 1)
         }
-        .padding(12)
-        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+        .padding(10)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 13))
     }
 
     private func modeCard(_ mode: String, family: TargetFamily, writable: WallpaperTarget?) -> some View {
         let target = family.targets.first(where: { $0.mode == mode && $0.editable })
             ?? family.targets.first(where: { $0.mode == mode })
-        return VStack(spacing: 7) {
+        return VStack(spacing: 5) {
             if let target {
                 ApplyTargetPreview(target: target)
             } else {
-                RoundedRectangle(cornerRadius: 9)
+                RoundedRectangle(cornerRadius: 8)
                     .fill(Color(uiColor: .tertiarySystemFill))
                     .overlay { Image(systemName: "photo").foregroundStyle(.secondary) }
-                    .frame(height: 80)
+                    .frame(height: 68)
             }
-            Text(mode)
-                .font(.caption)
-                .foregroundStyle(.secondary)
             Button {
                 if let writable { choose([writable], name: family.title) }
             } label: {
-                Text("写入\(mode)")
-                    .font(.subheadline.weight(.medium))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 32)
+                HStack(spacing: 4) {
+                    Text(mode)
+                    Image(systemName: "arrow.down.to.line")
+                }
+                .font(.caption.weight(.medium))
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .foregroundStyle(CanvasTheme.accent)
+                .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7))
+                .contentShape(Rectangle())
             }
-            .buttonStyle(.bordered)
-            .tint(CanvasTheme.accent)
+            .buttonStyle(.plain)
             .disabled(model.busy || writable == nil)
+            .opacity(model.busy || writable == nil ? 0.45 : 1)
             if let reason = unavailableReason(mode, in: family) {
                 Text(reason)
                     .font(.caption2)
@@ -612,10 +621,21 @@ private struct ApplyTargetPreview: View {
         GeometryReader { geometry in
             Group {
                 if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: geometry.size.width, height: geometry.size.height)
+                    ZStack {
+                        // 用同一张图片的柔化背景填满容器，消除灰边；前景完整保留原图。
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .blur(radius: 9)
+                            .overlay(Color.black.opacity(0.10))
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                    }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
                 } else {
                     Image(systemName: "photo")
                         .font(.caption)
@@ -624,10 +644,9 @@ private struct ApplyTargetPreview: View {
                 }
             }
         }
-        .frame(height: 80)
+        .frame(height: 68)
         .frame(maxWidth: .infinity)
-        .background(Color(uiColor: .tertiarySystemFill))
-        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
         .task(id: target.id) {
             image = nil
             let path = target.id
