@@ -191,7 +191,6 @@ struct WallpaperColorView: View {
                 {
                     let mask = adjustment.mask ?? savedMask
                     VStack(alignment: .leading, spacing: 14) {
-                        Text("CarPlay 蒙版补偿").font(.subheadline.weight(.semibold))
                         slider("蒙版透明度", value: Binding(
                             get: { adjustment.mask?.opacity ?? mask.opacity },
                             set: { adjustment.mask?.opacity = $0; showOriginal = false }
