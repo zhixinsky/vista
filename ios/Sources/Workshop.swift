@@ -661,6 +661,7 @@ struct HelpView: View {
                 LabeledContent("系统", value: "iOS \(UIDevice.current.systemVersion)")
                 LabeledContent("CarVista", value: model.appVersion)
                 diagnosticRow("签名容器", result: model.appGroupStatus)
+                diagnosticRow("App Group", result: model.group.isEmpty ? "未提供" : model.group)
                 diagnosticRow("最近查找", result: model.lastScanSummary ?? "本次启动尚未查找")
                 diagnosticRow("最近应用", result: model.lastApplySummary ?? "本次启动尚未应用")
                 diagnosticRow("最近解锁", result: model.lastUnlockSummary ?? "本次启动尚未解锁")
@@ -689,20 +690,7 @@ struct HelpView: View {
                 }
                 if let reportURL = model.reportURL { ShareLink("导出报告", item: reportURL) }
             }
-            Section("测试步骤") {
-                Text("1. 签名时保留有效 App Group，再安装。")
-                Text("2. 停车后，在车机 CarPlay 设置中切换几张内置图片壁纸，让系统生成缓存。")
-                Text("3. 打开“壁纸”，选择照片与尺寸模式，生成后点击“应用当前照片”。也可以从历史记录再次应用。")
-                Text("4. 确认备份并替换，然后点“重启 CarPlay”，尝试重载系统界面让壁纸生效。若仍显示旧图，请手动重启 iPhone 后重新连接车机。")
-                Text("5. 不满意可在恢复页恢复备份，再重启 iPhone 并连接 CarPlay 检查。")
-            }
-            Section("签名与兼容性") {
-                Text("App Group：\(model.group.isEmpty ? "未提供" : model.group)").textSelection(.enabled)
-                Text("需要签名工具实际创建并授予 App Group，例如支持该功能的 AltStore / SideStore。只有 entitlement 字符串不代表已获得权限。企业通配符描述文件通常不支持此功能。")
-                Text("本包使用公开的 worse_query 访问方案。iOS 27.2 和车机效果尚待实测；若系统拒绝访问或格式无法识别，会显示错误并停止写入。")
-            }
             Section("开源") {
-                Link("CarVista源码", destination: URL(string: "https://github.com/zhixinsky/CarVista")!)
                 Link("WQFiles / kolbicz", destination: URL(string: "https://github.com/kolbicz/WQFiles")!)
                 Link("worse_query / forcequitOS", destination: URL(string: "https://github.com/forcequitOS/worse_query")!)
                 Text("GPL-3.0-or-later。访问模块版权属于原作者。")

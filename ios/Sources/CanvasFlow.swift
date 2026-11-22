@@ -768,7 +768,6 @@ struct CanvasSettingsView: View {
             }
             Section("关于") {
                 NavigationLink { AppUpdateView() } label: { Label("检查 App 更新", systemImage: "arrow.down.circle") }
-                Link("项目源码", destination: URL(string: "https://github.com/zhixinsky/CarVista")!)
                 Text("基于公开研究实现。感谢 WQFiles 与 worse_query 作者。GPL-3.0-or-later。")
                     .font(.footnote).foregroundStyle(.secondary)
                 Text("制作记录和 CarPlay 失败信息会发送到服务端，用于改进兼容性。App 内不显示账号。")
@@ -812,8 +811,17 @@ private struct SupportedVersionsView: View {
                 Text("理论上支持 iOS 26.0–27.3 Beta 1")
             }
             Section("已有成功记录") {
-                ForEach(versions, id: \.self) { version in
-                    Text(version)
+                if !versions.isEmpty {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 135), spacing: 8)], alignment: .leading, spacing: 8) {
+                        ForEach(versions, id: \.self) { version in
+                            Text(version)
+                                .font(.subheadline)
+                                .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+                                .padding(.horizontal, 10)
+                                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                    .padding(.vertical, 4)
                 }
                 if loading { ProgressView() }
                 if failed {
