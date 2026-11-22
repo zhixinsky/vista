@@ -554,7 +554,7 @@ static NSString *CCSnapshotRoot(void) {
     return @{@"ok":@YES};
 }
 + (NSDictionary *)restoreDefaults:(NSDictionary<NSString *, NSData *> *)images {
-    NSSet *allowed = [NSSet setWithArray:@[@"Blue", @"Brown", @"DarkBlue", @"Green", @"Grey", @"Hero", @"Purple", @"Red", @"Teal"]];
+    NSSet *allowed = [NSSet setWithArray:@[@"Black", @"Blue", @"Brown", @"DarkBlue", @"Green", @"Grey", @"Hero", @"Lilac", @"Purple", @"Red", @"Teal"]];
     if (images.count != 12) return CCFail(@"默认壁纸不完整，请重新下载。");
     NSMutableSet *groups = NSMutableSet.new;
     for (NSString *key in images) {
