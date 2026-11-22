@@ -15,7 +15,6 @@ struct WallpaperColorView: View {
     @State private var savedMask: WallpaperMaskCompensation
     @State private var savedAdvanced: WallpaperAdvancedGrade
     @State private var showOverallMore = false
-    @State private var savedOverall: WallpaperColorAdjustment?
     @State private var showRegionMore = false
     @State private var selectedSection: ColorSection = .region
     var resetToken: Int = 0
@@ -68,6 +67,13 @@ struct WallpaperColorView: View {
             }
         }
         .onChange(of: resetToken) { _, _ in resetAll() }
+        .onAppear {
+            if selectedSection == .region && adjustment.leftEdge == nil {
+                var edge = savedEdge
+                edge.advanced?.local = true
+                adjustment.leftEdge = edge
+            }
+        }
         .tint(CanvasTheme.accent)
         .task { await loadOriginal() }
         .task(id: PreviewKey(ready: original != nil, color: adjustment)) { await updatePreview() }
@@ -113,26 +119,26 @@ struct WallpaperColorView: View {
                 }
                 .pickerStyle(.segmented)
                 .accessibilityIdentifier("color.sectionPicker")
-
-                if selectedSection == .region {
-                Toggle("区域调节", isOn: Binding(
-                    get: { adjustment.leftEdge != nil },
-                    set: { enabled in
-                        if let edge = adjustment.leftEdge { savedEdge = edge }
-                        if enabled {
+                .onChange(of: selectedSection) { _, section in
+                    switch section {
+                    case .region:
+                        if adjustment.leftEdge == nil {
                             var edge = savedEdge
                             edge.advanced?.local = true
                             adjustment.leftEdge = edge
-                        } else {
-                            adjustment.leftEdge = nil
                         }
-                        showOriginal = false
+                    case .overall:
+                        if adjustment.mask == nil {
+                            adjustment.mask = savedMask
+                        }
                     }
-                ))
-                .font(.headline)
+                    showOriginal = false
+                }
+
+                if selectedSection == .region {
                 Text("仅针对图片左侧区域调节，向右自然渐变，不影响其余区域。")
                     .font(.caption).foregroundStyle(.secondary)
-                if adjustment.leftEdge != nil {
+                {
                     VStack(alignment: .leading, spacing: 12) {
                         slider("亮度", value: edgeValue(\.brightness), range: -0.50...1, neutral: 0, format: "%+.0f%%")
                         slider("曝光", value: regionExposure, range: -1...0.85, neutral: 0,
@@ -180,41 +186,10 @@ struct WallpaperColorView: View {
                 }
 
                 } else {
-                Toggle("整体调节", isOn: Binding(
-                    get: { adjustment.mask != nil },
-                    set: { enabled in
-                        if enabled {
-                            adjustment.mask = savedMask
-                            if let previous = savedOverall {
-                                adjustment.brightness = previous.brightness
-                                adjustment.contrast = previous.contrast
-                                adjustment.saturation = previous.saturation
-                                adjustment.exposure = previous.exposure
-                                adjustment.highlights = previous.highlights
-                                adjustment.shadows = previous.shadows
-                                adjustment.temperature = previous.temperature
-                                adjustment.gamma = previous.gamma
-                            }
-                        } else {
-                            if let mask = adjustment.mask { savedMask = mask }
-                            savedOverall = adjustment
-                            adjustment.mask = nil
-                            adjustment.brightness = 0
-                            adjustment.contrast = 1
-                            adjustment.saturation = 1
-                            adjustment.exposure = nil
-                            adjustment.highlights = nil
-                            adjustment.shadows = nil
-                            adjustment.temperature = nil
-                            adjustment.gamma = nil
-                        }
-                        showOriginal = false
-                    }
-                ))
-                .font(.headline)
                 Text("作用于整张图片，可与区域调节叠加。")
                     .font(.caption).foregroundStyle(.secondary)
-                if let mask = adjustment.mask {
+                {
+                    let mask = adjustment.mask ?? savedMask
                     VStack(alignment: .leading, spacing: 14) {
                         Text("CarPlay 蒙版补偿").font(.subheadline.weight(.semibold))
                         slider("蒙版透明度", value: Binding(
@@ -271,7 +246,6 @@ struct WallpaperColorView: View {
         savedEdge = .init()
         savedMask = .init()
         savedAdvanced = .init()
-        savedOverall = nil
         showOverallMore = false
         showRegionMore = false
         showOriginal = false
