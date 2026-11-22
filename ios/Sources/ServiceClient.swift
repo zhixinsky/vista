@@ -217,11 +217,25 @@ actor ServiceClient {
     func comments(_ id: String, offset: Int = 0) async throws -> ShareCommentPage {
         var url = URLComponents(url: Self.endpoint("v1/shares/\(id)/comments"), resolvingAgainstBaseURL: false)!
         url.queryItems = [URLQueryItem(name: "offset", value: String(offset))]
-        let (data, response) = try await URLSession.shared.data(for: URLRequest(url: url.url!, timeoutInterval: 20))
+        var request = URLRequest(url: url.url!, timeoutInterval: 20)
+        if let token = await ensureToken() { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw NSError(domain: "CarVista", code: 1, userInfo: [NSLocalizedDescriptionKey: "评论暂时无法加载，请稍后重试。"])
         }
         return try JSONDecoder().decode(ShareCommentPage.self, from: data)
+    }
+
+    func setCommentLike(_ shareID: String, commentID: String, liked: Bool) async throws -> CommentLikeResult {
+        guard ServiceGate.enabled, let token = await ensureToken() else { throw URLError(.notConnectedToInternet) }
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(shareID)/comments/\(commentID)/like"), timeoutInterval: 20)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["liked": liked])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+        return try JSONDecoder().decode(CommentLikeResult.self, from: data)
     }
 
     func postComment(_ shareID: String, id: UUID, body: String) async throws {

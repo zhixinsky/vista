@@ -184,7 +184,7 @@ struct SharedWallpaperGalleryView: View {
         }
         guard !Task.isCancelled, requested == sort else { return }
         items = remote
-        note = remote.isEmpty ? "暂无精选壁纸。" : "点图片即可导入。"
+        note = remote.isEmpty ? "暂无精选壁纸。" : "此处壁纸由车友裁剪调色后分享上传，可点赞评论。"
     }
 
     private func like(_ item: SharedWallpaper) {
@@ -237,7 +237,11 @@ struct ShareComment: Decodable, Identifiable {
     let author: String
     let body: String
     let created_at: String
+    var likes: Int? = nil
+    var liked: Bool? = nil
 }
+
+struct CommentLikeResult: Decodable { let likes: Int; let liked: Bool }
 
 struct ShareCommentPage: Decodable {
     let items: [ShareComment]
@@ -251,6 +255,7 @@ struct ShareCommentsView: View {
     @State private var hasMore = false
     @State private var loading = false
     @State private var sending = false
+    @State private var likingIDs: Set<String> = []
     @State private var draft = ""
     @State private var draftID = UUID()
     @State private var note = ""
@@ -272,6 +277,14 @@ struct ShareCommentsView: View {
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
                             Text(comment.body).font(.body).textSelection(.enabled)
+                            HStack {
+                                Spacer()
+                                Button { Task { await like(comment) } } label: {
+                                    Label("\(comment.likes ?? 0)", systemImage: comment.liked == true ? "heart.fill" : "heart")
+                                        .font(.caption).foregroundStyle(comment.liked == true ? Color.red : Color.secondary)
+                                }.buttonStyle(.plain).disabled(likingIDs.contains(comment.id))
+                                    .accessibilityLabel(comment.liked == true ? "取消点赞" : "点赞")
+                            }
                         }.padding(.vertical, 4)
                     }
                     if hasMore { Button("查看更多评论") { Task { await load(reset: false) } }.disabled(loading || sending) }
@@ -288,7 +301,10 @@ struct ShareCommentsView: View {
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 8) {
                     TextField("写下你的评论…", text: $draft, axis: .vertical)
-                        .lineLimit(2...4).textFieldStyle(.roundedBorder).disabled(sending)
+                        .lineLimit(1...4)
+                        .padding(.horizontal, 16).padding(.vertical, 10)
+                        .background(Color(uiColor: .secondarySystemBackground), in: Capsule())
+                        .disabled(sending)
                     HStack {
                         Text("\(bodyText.count)/500").font(.caption).foregroundStyle(bodyText.count > 500 ? .red : .secondary)
                         Spacer()
@@ -317,6 +333,19 @@ struct ShareCommentsView: View {
             hasMore = page.has_more
             note = ""
         } catch { note = "评论未能加载，请重试。" }
+    }
+
+    private func like(_ comment: ShareComment) async {
+        guard !likingIDs.contains(comment.id) else { return }
+        likingIDs.insert(comment.id)
+        defer { likingIDs.remove(comment.id) }
+        do {
+            let result = try await ServiceClient.shared.setCommentLike(item.id, commentID: comment.id, liked: comment.liked != true)
+            if let index = comments.firstIndex(where: { $0.id == comment.id }) {
+                comments[index].likes = result.likes
+                comments[index].liked = result.liked
+            }
+        } catch { note = "点赞失败，请稍后重试。" }
     }
 
     private func send() async {
