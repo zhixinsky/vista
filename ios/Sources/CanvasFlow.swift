@@ -582,10 +582,7 @@ struct ApplyWallpaperView: View {
             Button {
                 if let writable { choose([writable], name: family.title) }
             } label: {
-                HStack(spacing: 4) {
-                    Text(mode)
-                    Image(systemName: "arrow.down.to.line")
-                }
+                Text("写入\(mode)")
                 .font(.caption.weight(.medium))
                 .frame(maxWidth: .infinity)
                 .frame(height: 28)
