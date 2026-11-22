@@ -1,0 +1,50 @@
+name: Build CarVista IPA
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install project generator
+        run: brew install xcodegen
+      - name: Generate project and compile for physical iPhone
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcodegen generate
+          xcodebuild -project CarVista.xcodeproj \
+            -scheme CarVista -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath DerivedData \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+      - name: Package IPA for re-signing with App Group
+        working-directory: ios
+        run: |
+          set -euo pipefail
+          app='DerivedData/Build/Products/Release-iphoneos/CarVista.app'
+          test -f "$app/CarVista"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CarVistaBackendAPIVersion' "$app/Info.plist")" = '2'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CarVistaUpdateBundleID' "$app/Info.plist")" = 'local.carvista'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "$app/Info.plist"
+          test -d "$app/LaunchScreen.storyboardc"
+          codesign --force --sign - --entitlements CarVista.entitlements "$app"
+          codesign --verify "$app"
+          codesign --display --entitlements - "$app"
+          mkdir -p output/Payload
+          ditto "$app" output/Payload/CarVista.app
+          cd output
+          /usr/bin/zip -qry CarVista-resign.ipa Payload
+          shasum -a 256 CarVista-resign.ipa > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CarVista-resign
+          path: |
+            ios/output/*.ipa
+            ios/output/SHA256SUMS
+          if-no-files-found: error
