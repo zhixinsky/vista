@@ -90,28 +90,56 @@ struct SharedWallpaperGalleryView: View {
                 }
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 8) {
+                        // Constrain the actual image and its hit-testing region to the visible card.
                         Button { select(item) } label: {
                             GalleryImage(url: item.previewURL, mode: .fill)
-                            .frame(height: 180)
-                            .frame(maxWidth: .infinity)
-                            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                            .overlay {
-                                if busyID == item.id { WallpaperDownloadCover() }
-                            }
-                        }.buttonStyle(.plain).disabled(busyID != nil || model.busy)
-                            .accessibilityLabel("选择\(item.title)")
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(item.title).font(.subheadline).lineLimit(1)
-                            Spacer(minLength: 8)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 180)
+                                .clipped()
+                                .background(Color(uiColor: .tertiarySystemFill))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .contentShape(RoundedRectangle(cornerRadius: 12))
+                                .overlay {
+                                    if busyID == item.id { WallpaperDownloadCover() }
+                                }
+                        }
+                        .frame(height: 180)
+                        .buttonStyle(.plain)
+                        .disabled(busyID != nil || model.busy)
+                        .accessibilityLabel("选择\(item.title)")
+                        HStack(alignment: .center, spacing: 8) {
+                            Text(item.title)
+                                .font(.subheadline)
+                                .lineLimit(1)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             Button { like(item) } label: {
-                                Label("\(item.likes)", systemImage: item.liked ? "heart.fill" : "heart")
-                            }.font(.caption).buttonStyle(.plain).disabled(busyID != nil || liking)
-                                .accessibilityLabel(item.liked ? "取消点赞，目前 \(item.likes) 个赞" : "点赞，目前 \(item.likes) 个赞")
+                                HStack(spacing: 5) {
+                                    Image(systemName: item.liked ? "heart.fill" : "heart")
+                                        .font(.system(size: 20, weight: .medium))
+                                        .foregroundStyle(item.liked ? Color.red : Color.secondary)
+                                    Text("\(item.likes)")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundStyle(.primary)
+                                }
+                                .frame(minWidth: 54, minHeight: 44)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(busyID != nil || liking)
+                            .accessibilityLabel(item.liked ? "取消点赞，目前 \(item.likes) 个赞" : "点赞，目前 \(item.likes) 个赞")
                             Button { commentItem = item } label: {
-                                Label("\(item.comments ?? 0)", systemImage: "bubble.left")
-                            }.font(.caption).buttonStyle(.plain)
-                                .accessibilityLabel("查看评论，共 \(item.comments ?? 0) 条")
+                                HStack(spacing: 5) {
+                                    Image(systemName: "bubble.left")
+                                        .font(.system(size: 20, weight: .medium))
+                                    Text("\(item.comments ?? 0)")
+                                        .font(.system(size: 14, weight: .medium))
+                                }
+                                .foregroundStyle(.secondary)
+                                .frame(minWidth: 54, minHeight: 44)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("查看评论，共 \(item.comments ?? 0) 条")
                         }
                         VStack(alignment: .leading, spacing: 2) {
                             if let author = item.author, !author.isEmpty {
