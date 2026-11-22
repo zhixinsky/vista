@@ -2,6 +2,7 @@
 import SwiftUI
 import PhotosUI
 import ImageIO
+import WebKit
 
 enum CanvasTheme {
     static let accent = Color(red: 0.0, green: 0.55, blue: 0.58)
@@ -430,61 +431,38 @@ struct ApplyWallpaperView: View {
     private var modes: Set<String> { Set(entries.map(\.mode)) }
     var body: some View {
         List {
-            if let completed {
-                Section {
-                    VStack(alignment: .leading, spacing: 13) {
-                        HStack(spacing: 9) {
-                            Image(systemName: finished ? "checkmark.circle" : "exclamationmark.triangle")
-                                .foregroundStyle(finished ? Color.green : Color.orange)
-                                .font(.system(size: 19, weight: .medium))
-                            Text(finished ? "壁纸已写入，等待车机刷新" : completed == 0 ? "写入失败" : "部分壁纸已写入")
-                                .font(.subheadline.weight(.semibold))
-                        }
+            Section {
+                if let completed {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(finished ? "壁纸已写入，等待车机刷新" : completed == 0 ? "写入失败" : "部分壁纸已写入",
+                              systemImage: finished ? "checkmark.circle" : "exclamationmark.triangle")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(finished ? Color.green : Color.orange)
                         Divider()
-                        Text(resultMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.primary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        Text(resultMessage).font(.footnote)
                         if finished {
-                            Text("重新连接 CarPlay 后即可查看新壁纸。建议先重启 iPhone。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            Text("重新连接 CarPlay 后查看新壁纸，建议重启 iPhone。")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-                }
-                .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 0, trailing: 16))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            } else {
-                Section {
+                    .padding(.vertical, 5)
+                } else {
                     Text("选择要替换的车机壁纸。原壁纸会自动备份。")
-                    if model.busy { ProgressView("正在处理，请保持应用在前台…") }
                 }
+                if model.busy { ProgressView("正在处理，请保持应用在前台…") }
             }
             if let completed, completed > 0 {
                 Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("立即刷新系统界面")
-                            .font(.subheadline.weight(.semibold))
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("立即刷新系统界面").font(.subheadline.weight(.semibold))
                         Text("点击下方按钮尝试刷新系统界面，可能短暂黑屏或返回桌面。请在停车状态下操作。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        WallpaperRefreshButton(title: "注销并刷新", systemImage: "power")
+                            .font(.caption).foregroundStyle(.secondary)
+                        ApplyResultLogoutButton()
                         Text("若刷新无效，请手动重启 iPhone 后重新连接 CarPlay。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                    .padding(.vertical, 5)
                 }
-                .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 0, trailing: 16))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
             }
             if !finished {
                 if !model.targets.isEmpty {
@@ -856,4 +834,50 @@ private struct SupportedDevicesView: View {
         do { items = try await ServiceClient.shared.compatibility().items }
         catch { failed = true }
     }
+}
+// Only used in the post-apply result sheet. The wallpaper page's existing
+// WallpaperRefreshButton remains untouched.
+private struct ApplyResultLogoutButton: View {
+    @EnvironmentObject private var model: WorkshopModel
+    @Environment(\.scenePhase) private var phase
+    @StateObject private var controller = RespringController()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button { controller.start() } label: {
+                Text(controller.active ? "正在刷新…" : "注销并刷新")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(Color.black, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.busy || controller.active)
+
+            if controller.active, let webView = controller.webView {
+                ApplyResultRespringSurface(webView: webView)
+                    .frame(height: 180)
+                    .allowsHitTesting(false)
+                ProgressView("正在尝试刷新系统界面…").font(.caption)
+                Button("停止尝试") { controller.stop("已停止，未确认是否刷新。") }
+                    .font(.caption)
+            } else if controller.message != "让系统重新加载界面和壁纸，可能短暂黑屏并返回桌面。请停车后操作。" {
+                Text(controller.message).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: phase) { _, newPhase in
+            if newPhase != .active && controller.active {
+                controller.stop("尝试已结束，请重新连接 CarPlay 检查壁纸效果。")
+            }
+        }
+        .onDisappear {
+            if controller.active { controller.stop("已停止。") }
+        }
+    }
+}
+
+private struct ApplyResultRespringSurface: UIViewRepresentable {
+    let webView: WKWebView
+    func makeUIView(context: Context) -> WKWebView { webView }
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
