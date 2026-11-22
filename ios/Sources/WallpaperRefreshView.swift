@@ -68,6 +68,37 @@ private struct RespringSurface: UIViewRepresentable {
     }
 }
 
+struct InlineWallpaperRefresh: View {
+    @EnvironmentObject private var model: WorkshopModel
+    @Environment(\.scenePhase) private var phase
+    @StateObject private var controller = RespringController()
+
+    var body: some View {
+        Section {
+            Text("点击下方按钮尝试刷新系统界面，可能短暂黑屏或返回桌面。请在停车状态下操作。")
+                .font(.footnote).foregroundStyle(.secondary)
+            if controller.active, let webView = controller.webView {
+                RespringSurface(webView: webView).frame(height: 180).allowsHitTesting(false)
+                ProgressView("正在尝试刷新…")
+                Button("停止尝试") { controller.stop("已停止，未确认是否刷新。") }
+            } else {
+                Button("注销并刷新") { controller.start() }
+                    .buttonStyle(.borderedProminent).disabled(model.busy)
+                    .accessibilityIdentifier("respring.start")
+            }
+            if controller.message != "让系统重新加载界面和壁纸，可能短暂黑屏并返回桌面。请停车后操作。" {
+                Text(controller.message).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("respring.status")
+            }
+            Text("若刷新无效，请手动重启 iPhone 后重新连接 CarPlay。")
+                .font(.footnote).foregroundStyle(.secondary)
+        } header: { Text("立即刷新系统界面") }
+        .onChange(of: phase) { _, value in
+            if value != .active, controller.active { controller.stop("尝试已结束，请重新连接 CarPlay 检查壁纸效果。") }
+        }
+        .onDisappear { controller.stop("已停止。") }
+    }
+}
+
 private struct WallpaperRefreshView: View {
     var title = "重启 CarPlay"
     @Environment(\.dismiss) private var dismiss
