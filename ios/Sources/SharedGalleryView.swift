@@ -72,6 +72,7 @@ struct SharedWallpaperGalleryView: View {
     @State private var liking = false
     @State private var sort: ShareSort = .likes
     @State private var commentItem: SharedWallpaper?
+    @State private var previewItem: SharedWallpaper?
 
     init(use: @escaping (GalleryPick) -> Void) {
         self.use = use
@@ -88,9 +89,10 @@ struct SharedWallpaperGalleryView: View {
                 if !note.isEmpty {
                     Text(note).font(.caption).foregroundStyle(.secondary)
                 }
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], alignment: .leading, spacing: 16) {
                 ForEach(items) { item in
                     VStack(alignment: .leading, spacing: 5) {
-                        Button { select(item) } label: {
+                        Button { previewItem = item } label: {
                             GalleryImage(url: item.previewURL, mode: .fill)
                             .frame(height: 180)
                             .frame(maxWidth: .infinity)
@@ -114,7 +116,7 @@ struct SharedWallpaperGalleryView: View {
                         .frame(height: 180)
                         .contentShape(Rectangle())
                         .buttonStyle(.plain).disabled(busyID != nil || model.busy)
-                            .accessibilityLabel("选择\(item.title)")
+                            .accessibilityLabel("查看\(item.title)")
                         HStack(alignment: .center, spacing: 8) {
                             Text(item.title).font(.subheadline).lineLimit(1)
                             Spacer(minLength: 4)
@@ -160,11 +162,15 @@ struct SharedWallpaperGalleryView: View {
                         }
                     }
                 }
+                }
             }.padding(16).frame(maxWidth: 720).frame(maxWidth: .infinity, alignment: .leading)
         }
         .task(id: sort) { await reload() }
         .refreshable { await reload() }
         if busyID != nil { WallpaperDownloadBanner() }
+        }
+        .fullScreenCover(item: $previewItem) { item in
+            SharedWallpaperPreview(item: item, use: use)
         }
         .sheet(item: $commentItem, onDismiss: { Task { await reload() } }) { item in
             ShareCommentsView(item: item)
@@ -219,6 +225,67 @@ struct SharedWallpaperGalleryView: View {
     }
 }
 
+
+private struct SharedWallpaperPreview: View {
+    @Environment(\.dismiss) private var dismiss
+    let item: SharedWallpaper
+    let use: (GalleryPick) -> Void
+    @State private var image: UIImage?
+    @State private var imageData: Data?
+    @State private var loading = false
+    @State private var failed = false
+    @State private var zoom: CGFloat = 1
+    @GestureState private var gestureZoom: CGFloat = 1
+
+    var body: some View {
+        NavigationStack {
+            GeometryReader { geometry in
+                ScrollView([.horizontal, .vertical]) {
+                    Group {
+                        if let image {
+                            Image(uiImage: image).resizable().scaledToFit()
+                        } else if failed {
+                            VStack(spacing: 12) {
+                                Text("图片加载失败")
+                                Button("重试") { Task { await load() } }
+                            }.foregroundStyle(.secondary)
+                        } else { ProgressView("正在加载图片…") }
+                    }
+                    .frame(width: geometry.size.width * max(1, min(5, zoom * gestureZoom)),
+                           height: geometry.size.height * max(1, min(5, zoom * gestureZoom)))
+                }
+                .simultaneousGesture(MagnificationGesture()
+                    .updating($gestureZoom) { value, state, _ in state = value }
+                    .onEnded { zoom = max(1, min(5, zoom * $0)) })
+                .onTapGesture(count: 2) { withAnimation { zoom = zoom > 1 ? 1 : 2 } }
+            }
+            .navigationTitle(item.title).navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
+            .safeAreaInset(edge: .bottom) {
+                Button("选择壁纸") {
+                    guard let imageData else { return }
+                    use(GalleryPick(data: imageData, source: "share", assetID: item.id))
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent).disabled(imageData == nil || loading)
+                .padding().frame(maxWidth: .infinity).background(.regularMaterial)
+            }
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        guard !loading else { return }
+        loading = true; failed = false
+        defer { loading = false }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: item.originalURL)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let decoded = UIImage(data: data) else { failed = true; return }
+            imageData = data; image = decoded
+        } catch { failed = true }
+    }
+}
 
 enum ShareSort: String, CaseIterable, Identifiable {
     case likes, latest, comments
