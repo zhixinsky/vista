@@ -5,20 +5,58 @@ import WebKit
 struct WallpaperRefreshButton: View {
     var title = "重启 CarPlay"
     var systemImage = "arrow.clockwise"
-    @EnvironmentObject var model: WorkshopModel
-    @State private var showing = false
+    @EnvironmentObject private var model: WorkshopModel
+    @Environment(\.scenePhase) private var phase
+    @StateObject private var controller = RespringController()
+
     var body: some View {
-        Button { showing = true } label: {
-            Label(title, systemImage: systemImage)
-        }.disabled(model.busy).accessibilityIdentifier(title == "注销" ? "wallpaper.logout" : "wallpaper.refresh")
-            .sheet(isPresented: $showing) { WallpaperRefreshView(title: title) }
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                controller.start()
+            } label: {
+                Label(controller.active ? "正在刷新…" : (title == "注销" ? "注销并刷新" : title),
+                      systemImage: systemImage)
+            }
+            .disabled(model.busy || controller.active)
+            .accessibilityIdentifier(title == "注销" ? "wallpaper.logout" : "wallpaper.refresh")
+
+            if controller.active, let webView = controller.webView {
+                // Keep the original WKWebView attached to the view hierarchy
+                // so the existing respring document can run without a second sheet.
+                RespringSurface(webView: webView)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                ProgressView("正在尝试刷新系统界面…")
+                    .font(.caption)
+                Button("停止尝试") {
+                    controller.stop("已停止，未确认是否刷新。")
+                }
+                .font(.caption)
+            } else if controller.message != RespringController.initialMessage {
+                Text(controller.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("respring.status")
+            }
+        }
+        .onChange(of: phase) { _, value in
+            if value != .active && controller.active {
+                controller.stop("尝试已结束，请重新连接 CarPlay 检查壁纸效果。")
+            }
+        }
+        .onDisappear {
+            if controller.active { controller.stop("已停止。") }
+        }
     }
 }
 
 @MainActor
 final class RespringController: ObservableObject {
+    static let initialMessage = "让系统重新加载界面和壁纸，可能短暂黑屏并返回桌面。请停车后操作。"
     @Published private(set) var active = false
-    @Published private(set) var message = "让系统重新加载界面和壁纸，可能短暂黑屏并返回桌面。请停车后操作。"
+    @Published private(set) var message = initialMessage
     private var timer: Task<Void, Never>?
     private(set) var webView: WKWebView?
 
@@ -65,37 +103,6 @@ private struct RespringSurface: UIViewRepresentable {
     static func dismantleUIView(_ uiView: WKWebView, coordinator: ()) {
         uiView.stopLoading()
         uiView.loadHTMLString("<html><body></body></html>", baseURL: nil)
-    }
-}
-
-struct InlineWallpaperRefresh: View {
-    @EnvironmentObject private var model: WorkshopModel
-    @Environment(\.scenePhase) private var phase
-    @StateObject private var controller = RespringController()
-
-    var body: some View {
-        Section {
-            Text("点击下方按钮尝试刷新系统界面，可能短暂黑屏或返回桌面。请在停车状态下操作。")
-                .font(.footnote).foregroundStyle(.secondary)
-            if controller.active, let webView = controller.webView {
-                RespringSurface(webView: webView).frame(height: 180).allowsHitTesting(false)
-                ProgressView("正在尝试刷新…")
-                Button("停止尝试") { controller.stop("已停止，未确认是否刷新。") }
-            } else {
-                Button("注销并刷新") { controller.start() }
-                    .buttonStyle(.borderedProminent).disabled(model.busy)
-                    .accessibilityIdentifier("respring.start")
-            }
-            if controller.message != "让系统重新加载界面和壁纸，可能短暂黑屏并返回桌面。请停车后操作。" {
-                Text(controller.message).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("respring.status")
-            }
-            Text("若刷新无效，请手动重启 iPhone 后重新连接 CarPlay。")
-                .font(.footnote).foregroundStyle(.secondary)
-        } header: { Text("立即刷新系统界面") }
-        .onChange(of: phase) { _, value in
-            if value != .active, controller.active { controller.stop("尝试已结束，请重新连接 CarPlay 检查壁纸效果。") }
-        }
-        .onDisappear { controller.stop("已停止。") }
     }
 }
 
