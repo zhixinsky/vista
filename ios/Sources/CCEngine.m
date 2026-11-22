@@ -367,7 +367,7 @@ static void CCKeepWallpapers(NSString *root, NSArray *files) {
     for (NSDictionary *file in files) {
         NSString *path = file[@"path"];
         NSDictionary *before = wq_file_version(path);
-        if ([target[@"version"] isKindOfClass:NSDictionary.class] && ![target[@"version"] isEqual:before]) return CCFail(@"壁纸已变化，请重新查找后再应用。");
+        if ([file[@"version"] isKindOfClass:NSDictionary.class] && ![file[@"version"] isEqual:before]) continue;
         NSData *data = wq_read(path, 0, NULL);
         if (before && [before isEqual:wq_file_version(path)] && !CCKeepData(root, path, data))
             wq_log(@"CarVista: could not preserve repair copy for %@", path);
