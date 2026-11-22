@@ -172,7 +172,7 @@ struct ComposeWallpaperView: View {
                             Text("精选壁纸").font(.headline)
                             Spacer()
                             Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                        }
+                        }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(openShared == nil).accessibilityIdentifier("wallpaper.shared")
                     if sharedBusy != nil {
                         HStack(spacing: 8) {
@@ -218,7 +218,7 @@ struct ComposeWallpaperView: View {
                                 Text("系列壁纸").font(.headline)
                                 Spacer()
                                 Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                            }
+                            }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                         }.buttonStyle(.plain).disabled(openSeries == nil).accessibilityIdentifier("wallpaper.series")
                         if !seriesNote.isEmpty {
                             Text(seriesNote).font(.caption).foregroundStyle(.secondary)

@@ -3,7 +3,7 @@ import SwiftUI
 
 struct WallpaperAdjustmentView: View {
     private enum Ratio: String, CaseIterable {
-        case free = "自由裁剪", standard = "标准 4:3", wide = "宽屏 16:9", ultrawide = "超宽屏", buick = "别克大联屏"
+        case free = "自由裁剪", standard = "标准 4:3", wide = "宽屏 16:9", ultrawide = "别克大联屏", buick = "车机全图裁剪"
 
         var allowsCornerResize: Bool { self != .free && self != .buick }
 
@@ -215,7 +215,7 @@ struct WallpaperAdjustmentView: View {
                         .accessibilityHidden(true)
                     VStack(spacing: 12) {
                         Text("原图尺寸不符").font(.headline)
-                        Text("别克大联屏仅适用于 6008 × 934 像素的原图。当前原图为 \(Int(pixels.width)) × \(Int(pixels.height)) 像素，请使用自由裁剪。")
+                        Text("车机全图裁剪仅适用于 6008 × 934 像素的原图。当前原图为 \(Int(pixels.width)) × \(Int(pixels.height)) 像素，请使用自由裁剪。")
                             .font(.subheadline).multilineTextAlignment(.center)
                         Button("知道了") { showsBuickSizeWarning = false }
                             .buttonStyle(.borderedProminent)

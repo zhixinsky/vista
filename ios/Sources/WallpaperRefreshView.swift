@@ -78,7 +78,11 @@ struct InlineWallpaperRefresh: View {
             Text("点击下方按钮尝试刷新系统界面，可能短暂黑屏或返回桌面。请在停车状态下操作。")
                 .font(.footnote).foregroundStyle(.secondary)
             if controller.active, let webView = controller.webView {
-                RespringSurface(webView: webView).frame(height: 180).allowsHitTesting(false)
+                RespringSurface(webView: webView)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 ProgressView("正在尝试刷新…")
                 Button("停止尝试") { controller.stop("已停止，未确认是否刷新。") }
             } else {
@@ -112,7 +116,11 @@ private struct WallpaperRefreshView: View {
                 Text("此操作只尝试重载系统界面，不写入或删除壁纸。当前系统是否支持、车机壁纸是否刷新，需要实际检查。")
                     .font(.subheadline).foregroundStyle(.secondary)
                 if controller.active, let webView = controller.webView {
-                    RespringSurface(webView: webView).frame(height: 180).allowsHitTesting(false)
+                    RespringSurface(webView: webView)
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                     ProgressView("正在尝试…")
                     Button("停止尝试") { controller.stop("已停止，未确认是否刷新。") }
                 } else {
