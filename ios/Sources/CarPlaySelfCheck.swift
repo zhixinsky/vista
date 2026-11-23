@@ -60,7 +60,6 @@ struct CarPlaySelfCheckView: View {
     private var result: [String: Any] { model.selfCheckResult ?? [:] }
     private var evidence: [String: Any] { result["evidence"] as? [String: Any] ?? [:] }
     private var mapped: [String: Any] { evidence["mappedCache"] as? [String: Any] ?? [:] }
-    private var loose: [[String: Any]] { (evidence["caches"] as? [String: Any])?["files"] as? [[String: Any]] ?? [] }
     private var checked: Bool { model.selfCheckDate != nil && !model.selfChecking }
     private var readable: Bool { mapped["listingSucceeded"] as? Bool == true }
     private var count: Int { model.targets.filter(\.editable).count }
@@ -69,34 +68,62 @@ struct CarPlaySelfCheckView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 22) {
-                    ZStack {
-                        Circle().stroke(cyan.opacity(0.12), lineWidth: 10)
-                        Circle().trim(from: 0, to: model.selfChecking ? 0.72 : 1)
-                            .stroke(AngularGradient(colors: [cyan.opacity(0.1), cyan], center: .center), style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                            .rotationEffect(.degrees(model.selfChecking && rotating && !reduceMotion ? 360 : 0))
-                            .animation(model.selfChecking && !reduceMotion ? .linear(duration: 2).repeatForever(autoreverses: false) : .default, value: rotating)
-                        VStack(spacing: 8) {
-                            Image(systemName: model.selfChecking ? "waveform.path.ecg" : ready ? "checkmark.shield.fill" : "car.side.fill").font(.system(size: 34)).foregroundStyle(cyan)
-                            Text(model.selfChecking ? "正在检索" : ready ? "已准备好" : checked ? "需要处理" : "等待自检").font(.title3.bold())
-                            Text(model.selfChecking ? "权限 · 容器 · 壁纸" : "CARPLAY DIAGNOSTICS").font(.system(size: 9, design: .monospaced)).foregroundStyle(cyan.opacity(0.8))
+                    VStack(alignment: .leading, spacing: 20) {
+                        HStack {
+                            Label("CARPLAY DIAGNOSTICS", systemImage: "waveform.path.ecg")
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .tracking(1.5).foregroundStyle(cyan)
+                            Spacer()
+                            Circle().fill(model.selfChecking ? cyan : ready ? Color.green : Color.orange)
+                                .frame(width: 6, height: 6)
                         }
-                    }.frame(width: 190, height: 190).padding(.top, 18)
+                        HStack(spacing: 16) {
+                            Image(systemName: model.selfChecking ? "waveform.path.ecg" : ready ? "checkmark.shield" : "car.side")
+                                .font(.system(size: 30, weight: .light))
+                                .foregroundStyle(cyan)
+                                .frame(width: 56, height: 56)
+                                .background(cyan.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(model.selfChecking ? "正在检查环境" : ready ? "车机壁纸已就绪" : checked ? "还有准备待完成" : "准备开始自检")
+                                    .font(.title2.weight(.semibold))
+                                Text(model.selfChecking ? "正在读取权限、容器与壁纸文件" : ready ? "访问与缓存检查通过，可以应用壁纸" : checked ? "查看下方结果，完成对应准备" : "检查手机与 CarPlay 壁纸环境")
+                                    .font(.caption).foregroundStyle(.white.opacity(0.6))
+                            }
+                        }
+                        GeometryReader { geometry in
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(cyan.opacity(0.1))
+                                if model.selfChecking {
+                                    Capsule()
+                                        .fill(LinearGradient(colors: [cyan.opacity(0), cyan, cyan.opacity(0)], startPoint: .leading, endPoint: .trailing))
+                                        .frame(width: reduceMotion ? geometry.size.width : geometry.size.width * 0.4)
+                                        .offset(x: reduceMotion ? 0 : rotating ? geometry.size.width * 0.6 : 0)
+                                        .animation(reduceMotion ? nil : .easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: rotating)
+                                } else if checked {
+                                    Capsule().fill(ready ? Color.green : Color.orange).opacity(0.7)
+                                }
+                            }
+                        }.frame(height: 3)
+                    }
+                    .padding(22)
+                    .background(LinearGradient(colors: [cyan.opacity(0.09), .white.opacity(0.025)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 22))
+                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(cyan.opacity(0.16), lineWidth: 1))
+                    .padding(.top, 8)
                     VStack(spacing: 0) {
                         row("设备信息", detail: "\(deviceName) · \(ServiceClient.machine)", good: true)
+                        row("CarVista 版本", detail: model.appVersion, good: true)
                         row("系统兼容性", detail: "iOS \(UIDevice.current.systemVersion) · \(ServiceClient.systemBuild)\n支持 iOS 26 至 27.3 beta 1", good: supported)
                         row("App Group", detail: model.appGroupStatus, good: model.group.isEmpty ? false : FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: model.group) != nil)
                         row("实际访问权限", detail: checked ? readable ? "目标壁纸目录可列出" : "尚未确认可读取目标壁纸目录" : "等待检索", good: checked ? readable : nil)
                         row("CarPlay 容器", detail: checked ? model.root.isEmpty ? "未定位，请重新检测" : "已定位并确认身份" : "等待检索", good: checked ? !model.root.isEmpty : nil)
                         row("壁纸缓存", detail: checked ? "可用 \(count) 张 · 缺失 \(model.targets.filter(\.missing).count) 张" : "等待检索", good: checked ? count == 12 : nil)
-                        let scattered = loose.filter { $0["wallpaper"] as? Bool == true }.count
-                        row("备用位置", detail: checked ? "Caches 根目录发现 \(scattered) 张壁纸" : "等待检索", good: checked ? scattered == 0 : nil)
                         let copies = result["validRepairCopies"] as? Int ?? 0
                         row("本机恢复副本", detail: checked ? "已验证 \(copies) 张；缺项恢复时需要默认壁纸" : "等待检索", good: checked ? copies == 12 : nil)
                     }.background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 20))
                     if checked && !ready {
                         VStack(alignment: .leading, spacing: 10) {
                             Label("下一步", systemImage: "arrow.right.circle").font(.headline)
-                            Text(!supported ? "当前系统不在支持范围内。27.3 仅支持 beta 1（24C5037i）。" : model.group.isEmpty ? "当前安装没有提供 App Group，请使用支持 App Group 的方式重新签名安装。" : !readable || count == 0 ? "请连接 CarPlay，在车机设置中切换一次系统壁纸，然后返回重新检测。若仍失败，请导出诊断。" : "部分壁纸缺失或无法读取。可在车机切换其他内置壁纸后重新检测，或进入壁纸缓存页检查。")
+                            Text(!supported ? "当前系统不在支持范围内。27.3 仅支持 beta 1（24C5037i）。" : model.group.isEmpty ? "当前安装没有提供 App Group，请使用支持 App Group 的方式重新签名安装。" : !readable || count == 0 ? "请连接 CarPlay，在车机设置中切换一次系统壁纸，然后返回重新检测。若仍失败，请到设置页生成诊断报告。" : "部分壁纸缺失或无法读取。可在车机切换其他内置壁纸后重新检测，或进入壁纸缓存页检查。")
                                 .font(.subheadline).foregroundStyle(.white.opacity(0.75))
                             if model.group.isEmpty == false && count == 0 {
                                 Button("继续定位容器") { model.scan(deep: true) }.disabled(model.busy)
@@ -112,9 +139,6 @@ struct CarPlaySelfCheckView: View {
                     }.tint(cyan)
                     Text("自检检查手机内的访问与文件状态；车机是否显示新壁纸，需要连接后确认。")
                         .font(.caption).foregroundStyle(.white.opacity(0.5))
-                    if model.diagnosing { ProgressView("正在生成诊断…") }
-                    if !model.reportNote.isEmpty { Text(model.reportNote).font(.caption) }
-                    if let report = model.reportURL { ShareLink("分享诊断文件", item: report) }
                 }.padding(20).frame(maxWidth: 680).frame(maxWidth: .infinity)
             }
             .background(LinearGradient(colors: [Color(red: 0.025, green: 0.065, blue: 0.12), .black], startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea())
@@ -124,7 +148,6 @@ struct CarPlaySelfCheckView: View {
             .safeAreaInset(edge: .bottom) {
                 HStack {
                     Button(model.selfChecking ? "正在检测…" : "重新检测") { start() }.buttonStyle(.borderedProminent).disabled(model.busy)
-                    Button("导出诊断") { model.makeReport() }.buttonStyle(.bordered).disabled(model.busy || model.diagnosing)
                 }.padding().frame(maxWidth: .infinity).background(.ultraThinMaterial)
             }
             .task { start() }
