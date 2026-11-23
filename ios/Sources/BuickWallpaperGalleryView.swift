@@ -59,6 +59,8 @@ struct BuickWallpaperGalleryView: View {
                 .toolbar { Button("关闭") { selection = nil }.disabled(loading) }
                 .interactiveDismissDisabled(loading)
             }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 
