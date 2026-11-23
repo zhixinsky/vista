@@ -14,11 +14,15 @@ struct CarVistaApp: App {
         WindowGroup {
             CanvasHomeView().environmentObject(model)
                 .task {
+                    model.maintainCacheSilently()
                     await ServiceClient.shared.startup()
                     await updates.check(automatically: true)
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { Task { await updates.check(automatically: true) } }
+                    if phase == .active {
+                        model.maintainCacheSilently()
+                        Task { await updates.check(automatically: true) }
+                    }
                 }
                 .sheet(isPresented: $updates.showPrompt) {
                     NavigationStack { AppUpdateView(prompted: true) }
@@ -95,6 +99,46 @@ final class WorkshopModel: ObservableObject {
             }.sorted { $0.created > $1.created }
         } catch { message = "无法载入本地历史：\(error.localizedDescription)" }
         backups = (CCEngine.snapshots() as? [[String: Any]] ?? []) + (CCEngine.backups() as? [[String: Any]] ?? [])
+    }
+
+    private var cacheMaintenanceQueued = false
+    private var lastCacheMaintenance: Date?
+
+    func maintainCacheSilently() {
+        // Share the mutation queue with scan/apply/restore. No modal, spinner,
+        // published busy state for routine maintenance.
+        guard !cacheMaintenanceQueued else { return }
+        if let lastCacheMaintenance, Date().timeIntervalSince(lastCacheMaintenance) < 30 { return }
+        cacheMaintenanceQueued = true
+        Task {
+            defer {
+                cacheMaintenanceQueued = false
+                lastCacheMaintenance = Date()
+            }
+            do {
+                var result = await runCacheMaintenance(defaults: [:])
+                if result["needsDefaults"] as? Bool == true {
+                    let defaults = try await Task.detached(priority: .utility) {
+                        try await AutomaticWallpaperDefaults.load()
+                    }.value
+                    // Re-read files and backups after the download. A manual apply
+                    // may have completed while awaiting the network.
+                    result = await runCacheMaintenance(defaults: defaults)
+                }
+                NSLog("CarVista automatic recovery: %@", result)
+            } catch {
+                NSLog("CarVista automatic recovery deferred: %@", String(describing: error))
+            }
+        }
+    }
+
+    private func runCacheMaintenance(defaults: [String: Data]) async -> [String: Any] {
+        await withCheckedContinuation { continuation in
+            queue.async {
+                let result = autoreleasepool { CCEngine.maintainWallpaperCache(defaults) as? [String: Any] ?? [:] }
+                continuation.resume(returning: result)
+            }
+        }
     }
 
     func report(_ type: String, ok: Bool, _ payload: [String: Any]) {
