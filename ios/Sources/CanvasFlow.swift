@@ -142,10 +142,12 @@ struct CanvasHistoryView: View {
     }
     var body: some View {
         List {
-            Section {
-                Button { importingBitmap = true } label: { Label("导入 CPBitmap 文件", systemImage: "square.and.arrow.down") }
-                    .disabled(model.busy)
-                if let importResult { Text(importResult).font(.footnote).foregroundStyle(.secondary) }
+            if model.collections.isEmpty {
+                Section {
+                    Button { importingBitmap = true } label: { Label("导入 CPBitmap 文件", systemImage: "square.and.arrow.down") }
+                        .disabled(model.busy)
+                    if let importResult { Text(importResult).font(.footnote).foregroundStyle(.secondary) }
+                }
             }
             Picker("共享状态", selection: $shareFilter) {
                 ForEach(HistoryShareFilter.allCases) { Text($0.rawValue).tag($0) }
@@ -284,6 +286,8 @@ struct WallpaperDetailView: View {
     @State private var editingShare = false
     @State private var editingShareID: UUID?
     @State private var confirmingUnshare = false
+    @State private var importingBitmap = false
+    @State private var importResult: String?
     private var collection: WallpaperCollection? { model.collections.first { $0.id == collectionID } }
     var body: some View {
         Group {
@@ -308,16 +312,24 @@ struct WallpaperDetailView: View {
                         }
                         .disabled(model.busy || sharing)
                         if let shareNote { Text(shareNote).font(.footnote).foregroundStyle(.secondary) }
+                        Button { importingBitmap = true } label: { Label("导入 CPBitmap 文件", systemImage: "square.and.arrow.down") }.disabled(model.busy)
+                        if let importResult { Text(importResult).font(.footnote).foregroundStyle(.secondary) }
                         ShareLink(items: collection.entries.map(\.bitmap)) { Label("分享 CPBitmap 文件", systemImage: "square.and.arrow.up") }
                         if let dashboard = collection.entries.first(where: { $0.mode == "车机" }) {
                             ShareLink(item: dashboard.originalImage) { Label("分享车机整屏图片", systemImage: "photo") }
                         }
-                        Button("重命名") { name = collection.title; renaming = true }.disabled(model.busy)
+                        Button { name = collection.title; renaming = true } label: { Label("重命名", systemImage: "pencil") }.disabled(model.busy)
                     }
                     Section { Button("删除记录", role: .destructive) { deleting = true }.disabled(model.busy) }
                 }
             } else { ContentUnavailableView("记录已删除", systemImage: "photo") }
         }.navigationTitle("壁纸详情").navigationBarTitleDisplayMode(.inline)
+            .fileImporter(isPresented: $importingBitmap, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
+                switch result {
+                case .success(let urls): model.importBitmaps(urls) { importResult = $0 }
+                case .failure(let error): importResult = "导入失败：\(error.localizedDescription)"
+                }
+            }
             .task {
                 if startSharing, let collection {
                     let shared = collection.entries.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) }

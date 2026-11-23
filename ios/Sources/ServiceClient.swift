@@ -161,7 +161,7 @@ actor ServiceClient {
 
     func shareMetadata(_ id: UUID) async -> ShareMetadata? {
         guard let token = await ensureToken() else { return nil }
-        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString)/metadata"), timeoutInterval: 20)
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString.lowercased())/metadata"), timeoutInterval: 20)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -172,7 +172,7 @@ actor ServiceClient {
 
     func removeShare(_ id: UUID) async -> Bool {
         guard let token = await ensureToken() else { return false }
-        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString)"), timeoutInterval: 20)
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString.lowercased())"), timeoutInterval: 20)
         request.httpMethod = "DELETE"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         do {
@@ -187,7 +187,7 @@ actor ServiceClient {
 
     func updateShare(_ id: UUID, title: String, description: String, author: String = "") async -> Bool {
         guard let token = await ensureToken() else { return false }
-        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString)/metadata"), timeoutInterval: 20)
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString.lowercased())/metadata"), timeoutInterval: 20)
         request.httpMethod = "PATCH"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
