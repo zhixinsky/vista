@@ -173,7 +173,7 @@ struct SharedWallpaperGalleryView: View {
         }
         .sheet(item: $previewItem, onDismiss: { Task { await reload() } }) { item in
             SharedWallpaperPreview(item: item, use: use)
-                .presentationDetents([.medium])
+                .presentationDetents([.fraction(0.75), .large])
                 .presentationDragIndicator(.visible)
         }
         .sheet(item: $commentItem, onDismiss: { Task { await reload() } }) { item in

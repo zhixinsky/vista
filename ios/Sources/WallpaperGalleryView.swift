@@ -263,6 +263,8 @@ private struct BingWallpaperGalleryView: View {
                 selection = nil
                 use(pick)
             }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 
