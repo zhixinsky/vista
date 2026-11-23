@@ -404,11 +404,36 @@ struct WallpaperDetailView: View {
                 }
             } else { ContentUnavailableView("记录已删除", systemImage: "photo") }
         }.navigationTitle("壁纸详情").navigationBarTitleDisplayMode(.inline)
-            .alert("分享码已复制", isPresented: $showShareCode) {
-                Button("取消分享", role: .destructive) { confirmRevokeCode = true }
-                Button("完成", role: .cancel) {}
-            } message: {
-                Text("\(codeValue ?? "")\n有效期 30 天，后续修改不会同步。")
+            .overlay {
+                if showShareCode {
+                    ZStack {
+                        Color.black.opacity(0.42).ignoresSafeArea()
+                        VStack(spacing: 18) {
+                            Text("分享码已复制").font(.headline)
+                            Text(codeValue ?? "")
+                                .font(.system(size: 36, weight: .bold, design: .monospaced))
+                                .tracking(3)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: .infinity)
+                                .lineLimit(1).minimumScaleFactor(0.55)
+                                .textSelection(.enabled)
+                            Text("有效期 30 天，后续修改不会同步。")
+                                .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                            Button("完成") { showShareCode = false }
+                                .buttonStyle(.borderedProminent).frame(maxWidth: .infinity)
+                            Button("取消分享", role: .destructive) {
+                                showShareCode = false
+                                confirmRevokeCode = true
+                            }
+                        }
+                        .padding(24)
+                        .frame(maxWidth: 330)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                        .padding(.horizontal, 24)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityAddTraits(.isModal)
+                }
             }
             .task {
                 let expiry = UserDefaults.standard.double(forKey: codeStorageKey + ".expiry")
