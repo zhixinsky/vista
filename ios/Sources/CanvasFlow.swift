@@ -233,7 +233,18 @@ struct CanvasHistoryView: View {
             }
             .sheet(isPresented: Binding(get: { codeManifest != nil }, set: { if !$0 { codeManifest = nil } })) {
                 if let manifest = codeManifest {
-                    NavigationStack {
+                    VStack(spacing: 0) {
+                        HStack(alignment: .center, spacing: 12) {
+                            let author = manifest.author?.trimmingCharacters(in: .whitespacesAndNewlines)
+                            (Text(author?.isEmpty == false ? author! : "车友").bold() + Text("分享的壁纸"))
+                                .font(.system(size: 20)).foregroundStyle(.primary)
+                                .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityAddTraits(.isHeader)
+                            Button("关闭") { codeManifest = nil }
+                                .buttonStyle(.plain).foregroundStyle(CanvasTheme.accent)
+                                .fixedSize()
+                        }
+                        .padding(.horizontal, 20).padding(.top, 22).padding(.bottom, 12)
                         List {
                             if let codePreview { Image(uiImage: codePreview).resizable().scaledToFit().frame(maxHeight: 180) }
                             Text(manifest.title).font(.headline)
@@ -244,18 +255,6 @@ struct CanvasHistoryView: View {
                                 codeManifest = nil
                                 model.importSharedCode(code, manifest: manifest) { importResult = $0 }
                             }.disabled(model.busy)
-                        }
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                let author = manifest.author?.trimmingCharacters(in: .whitespacesAndNewlines)
-                                (Text(author?.isEmpty == false ? author! : "车友").bold() + Text("分享的壁纸"))
-                                    .font(.system(size: 16)).foregroundStyle(.primary)
-                                    .lineLimit(1).minimumScaleFactor(0.75)
-                                    .allowsHitTesting(false)
-                                    .accessibilityAddTraits(.isHeader)
-                            }
-                            ToolbarItem(placement: .confirmationAction) { Button("关闭") { codeManifest = nil } }
                         }
                     }.presentationDetents([.medium])
                 }
