@@ -194,14 +194,10 @@ struct CanvasHistoryView: View {
 
                 }
                 .overlay(alignment: .topTrailing) {
-                    HStack(spacing: 4) {
-                        if shared { Text("图库") }
-                        if hasCode { Text("分享码") }
+                    VStack(alignment: .trailing, spacing: 4) {
+                        if shared { sharingBadge("图库") }
+                        if hasCode { sharingBadge("分享码") }
                     }
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(CanvasTheme.accent)
-                    .padding(.horizontal, 6).padding(.vertical, 3)
-                    .background((shared || hasCode) ? CanvasTheme.accent.opacity(0.12) : .clear, in: Capsule())
                     .allowsHitTesting(false)
                 }
                 .swipeActions { Button("删除", role: .destructive) { remove = collection }.disabled(model.busy) }
@@ -285,6 +281,14 @@ struct CanvasHistoryView: View {
                 }
                 .presentationDetents([.medium])
             }
+    }
+
+    private func sharingBadge(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(CanvasTheme.accent)
+            .padding(.horizontal, 6).padding(.vertical, 3)
+            .background(CanvasTheme.accent.opacity(0.12), in: Capsule())
     }
 
     private func lookupCode() {
@@ -451,15 +455,22 @@ struct WallpaperDetailView: View {
                 NavigationStack {
                     Form {
                         Section("作者") { TextField("作者，可以留空", text: $shareAuthor) }
-                        if editingShare {
-                            Section { Button("取消共享", role: .destructive) { confirmingUnshare = true }.disabled(sharing) }
-                        }
                         Section("壁纸名称") { TextField("壁纸名称", text: $shareTitle) }
                         Section {
                             TextField("写一段介绍，可以留空", text: $shareText, axis: .vertical)
                                 .lineLimit(3...6)
                         } footer: {
                             Text("介绍会显示在图库的共享分类里。")
+                        }
+                        if editingShare {
+                            Section {
+                                Button(role: .destructive) { confirmingUnshare = true } label: {
+                                    Text("取消共享").fontWeight(.semibold).frame(maxWidth: .infinity)
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.red)
+                                .disabled(sharing)
+                            }
                         }
                     }
                     .confirmationDialog("取消共享后，壁纸将从公共图库移除。", isPresented: $confirmingUnshare, titleVisibility: .visible) {
