@@ -129,6 +129,11 @@ struct CanvasHistoryView: View {
     @State private var shareFilter: HistoryShareFilter = .all
     @State private var importingBitmap = false
     @State private var importResult: String?
+    @State private var enteringCode = false
+    @State private var shareCodeInput = ""
+    @State private var codeManifest: ServiceClient.WallpaperCodeManifest?
+    @State private var codeLoading = false
+    @State private var codePreview: UIImage?
     private var sharedIDs: Set<String> { Set(sharedHistory.split(separator: "|").map(String.init)) }
     private var visibleCollections: [WallpaperCollection] {
         model.collections.filter { collection in
@@ -149,6 +154,8 @@ struct CanvasHistoryView: View {
                     if let importResult { Text(importResult).font(.footnote).foregroundStyle(.secondary) }
                 }
             }
+            if let importResult { Text(importResult).font(.footnote).foregroundStyle(.secondary) }
+            if codeLoading { ProgressView("正在查询分享码…") }
             Picker("共享状态", selection: $shareFilter) {
                 ForEach(HistoryShareFilter.allCases) { Text($0.rawValue).tag($0) }
             }.pickerStyle(.segmented)
@@ -167,7 +174,7 @@ struct CanvasHistoryView: View {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(collection.title).font(.headline).lineLimit(2)
                                 Text(collection.first.created, format: .dateTime.year().month().day().hour().minute()).font(.caption).foregroundStyle(.secondary)
-                                Text("\(collection.mode) · 本地壁纸").font(.caption).foregroundStyle(.secondary)
+                                Text("本地壁纸").font(.caption).foregroundStyle(.secondary)
                                 if let note = shareNotes[collection.id] {
                                     Text(note).font(.caption).foregroundStyle(.secondary)
                                 }
@@ -209,7 +216,34 @@ struct CanvasHistoryView: View {
                 }
             }
             .navigationTitle("我的壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
-            .toolbar { Button("全部清空") { clear = true }.disabled(model.history.isEmpty || model.busy) }
+            .toolbar {
+                Menu {
+                    Button { shareCodeInput = ""; enteringCode = true } label: { Label("输入分享码", systemImage: "text.badge.plus") }
+                    Button("全部清空", role: .destructive) { clear = true }.disabled(model.history.isEmpty || model.busy)
+                } label: { Label("壁纸工具", systemImage: "ellipsis.circle") }
+            }
+            .alert("输入分享码", isPresented: $enteringCode) {
+                TextField("粘贴分享码", text: $shareCodeInput).textInputAutocapitalization(.characters).autocorrectionDisabled()
+                Button("查询") { lookupCode() }
+                Button("取消", role: .cancel) {}
+            }
+            .sheet(isPresented: Binding(get: { codeManifest != nil }, set: { if !$0 { codeManifest = nil } })) {
+                if let manifest = codeManifest {
+                    NavigationStack {
+                        List {
+                            if let codePreview { Image(uiImage: codePreview).resizable().scaledToFit().frame(maxHeight: 180) }
+                            Text(manifest.title).font(.headline)
+                            Text("包含 1 张壁纸")
+                            Text("有效期至：\(Date(timeIntervalSince1970: manifest.expires_at / 1000).formatted())")
+                            Button("保存到我的壁纸") {
+                                let code = shareCodeInput.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "").uppercased()
+                                codeManifest = nil
+                                model.importSharedCode(code, manifest: manifest) { importResult = $0 }
+                            }.disabled(model.busy)
+                        }.navigationTitle("分享壁纸").toolbar { Button("关闭") { codeManifest = nil } }
+                    }.presentationDetents([.medium])
+                }
+            }
             .confirmationDialog("清空所有本地壁纸记录？已应用的车机壁纸和恢复备份会保留。", isPresented: $clear, titleVisibility: .visible) {
                 Button("全部清空", role: .destructive) { model.deleteHistory(model.history) }
             }
@@ -243,6 +277,24 @@ struct CanvasHistoryView: View {
                 }
                 .presentationDetents([.medium])
             }
+    }
+
+    private func lookupCode() {
+        let code = shareCodeInput.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "").uppercased()
+        guard code.range(of: "^CV[A-F0-9]{20}$", options: .regularExpression) != nil else { importResult = "分享码格式无效。"; return }
+        codeLoading = true
+        Task {
+            defer { codeLoading = false }
+            do {
+                let manifest = try await ServiceClient.shared.wallpaperCode(code)
+                let data = try await ServiceClient.shared.wallpaperCodeFile(code, index: 0)
+                guard let image = CCEngine.decodeBitmap(data) else { throw URLError(.cannotDecodeContentData) }
+                codePreview = image
+                codeManifest = manifest
+                importResult = nil
+            }
+            catch { importResult = "分享码不存在、已过期或网络不可用。" }
+        }
     }
 
     private func share(_ collection: WallpaperCollection, intro: String) {
@@ -286,6 +338,10 @@ struct WallpaperDetailView: View {
     @State private var editingShare = false
     @State private var editingShareID: UUID?
     @State private var confirmingUnshare = false
+    @State private var codeBusy = false
+    @State private var codeNote: String?
+    @State private var codeValue: String?
+    @State private var confirmRevokeCode = false
     @State private var importingBitmap = false
     @State private var importResult: String?
     private var collection: WallpaperCollection? { model.collections.first { $0.id == collectionID } }
@@ -298,7 +354,7 @@ struct WallpaperDetailView: View {
                         SavedThumbnail(entry: shown)
                             .aspectRatio(CGFloat(shown.width) / CGFloat(max(shown.height, 1)), contentMode: .fit).clipped()
                         Text(collection.title).font(.headline)
-                        Text("\(collection.mode) · \(shown.width) × \(shown.height)").foregroundStyle(.secondary)
+                        Text("\(shown.width) × \(shown.height)").foregroundStyle(.secondary)
                         if let preset = collection.first.outputPreset { Text("\(preset) · 生成后直接写入").font(.caption).foregroundStyle(.secondary) }
                         if collection.first.preservePixels == true { Text("原尺寸直接写入").font(.caption).foregroundStyle(.secondary) }
                     }
@@ -314,7 +370,15 @@ struct WallpaperDetailView: View {
                         if let shareNote { Text(shareNote).font(.footnote).foregroundStyle(.secondary) }
                         Button { importingBitmap = true } label: { Label("导入 CPBitmap 文件", systemImage: "square.and.arrow.down") }.disabled(model.busy)
                         if let importResult { Text(importResult).font(.footnote).foregroundStyle(.secondary) }
-                        ShareLink(items: collection.entries.map(\.bitmap)) { Label("分享 CPBitmap 文件", systemImage: "square.and.arrow.up") }
+                        if codeValue == nil {
+                            Button { generateCode(collection) } label: { Label(codeBusy ? "正在生成分享码…" : "生成分享码", systemImage: "link") }.disabled(codeBusy || model.busy)
+                        }
+                        if let codeValue {
+                            Text(codeValue).textSelection(.enabled).font(.footnote.monospaced())
+                            Button { UIPasteboard.general.string = codeValue; codeNote = "分享码已复制。" } label: { Label("复制分享码", systemImage: "doc.on.doc") }
+                            Button("取消此分享码", role: .destructive) { confirmRevokeCode = true }.disabled(codeBusy)
+                        }
+                        if let codeNote { Text(codeNote).font(.footnote).foregroundStyle(.secondary) }
                         if let dashboard = collection.entries.first(where: { $0.mode == "车机" }) {
                             ShareLink(item: dashboard.originalImage) { Label("分享车机整屏图片", systemImage: "photo") }
                         }
@@ -331,6 +395,9 @@ struct WallpaperDetailView: View {
                 }
             }
             .task {
+                let expiry = UserDefaults.standard.double(forKey: codeStorageKey + ".expiry")
+                if expiry > Date().timeIntervalSince1970 * 1000 { codeValue = UserDefaults.standard.string(forKey: codeStorageKey) }
+                else { UserDefaults.standard.removeObject(forKey: codeStorageKey); UserDefaults.standard.removeObject(forKey: codeStorageKey + ".expiry") }
                 if startSharing, let collection {
                     let shared = collection.entries.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) }
                     prepareShare(collection, shared: shared)
@@ -377,6 +444,10 @@ struct WallpaperDetailView: View {
                 }
                 .presentationDetents([.medium])
             }
+            .confirmationDialog("取消后，其他人将无法再通过此分享码下载。", isPresented: $confirmRevokeCode, titleVisibility: .visible) {
+                Button("确认取消分享码", role: .destructive) { revokeCode() }
+                Button("返回", role: .cancel) {}
+            }
             .alert("重命名", isPresented: $renaming) {
                 TextField("壁纸名称", text: $name)
                 Button("保存") { if let collection { model.renameHistory(collection.entries, name: name) } }
@@ -385,6 +456,38 @@ struct WallpaperDetailView: View {
             .confirmationDialog("只删除本地记录，车机壁纸与恢复备份会保留。", isPresented: $deleting, titleVisibility: .visible) {
                 Button("删除记录", role: .destructive) { if let collection { model.deleteHistory(collection.entries); dismiss() } }
             }
+    }
+
+    private var codeStorageKey: String { "CarVistaWallpaperCode.\(collectionID.uuidString)" }
+    private func generateCode(_ collection: WallpaperCollection) {
+        guard !codeBusy else { return }
+        codeBusy = true
+        Task {
+            defer { codeBusy = false }
+            do {
+                let entry = collection.entries.first { $0.mode != "车机" } ?? collection.first
+                let created = try await ServiceClient.shared.createWallpaperCode(entries: [entry], title: collection.title)
+                codeValue = created.code
+                UserDefaults.standard.set(created.code, forKey: codeStorageKey)
+                UserDefaults.standard.set(created.expires_at, forKey: codeStorageKey + ".expiry")
+                UIPasteboard.general.string = created.code
+                codeNote = "已复制。有效期至 \(Date(timeIntervalSince1970: created.expires_at / 1000).formatted())；后续修改不会同步。"
+            } catch { codeNote = "生成失败，请检查网络和后台服务。" }
+        }
+    }
+    private func revokeCode() {
+        guard let codeValue else { return }
+        codeBusy = true
+        Task {
+            defer { codeBusy = false }
+            do {
+                try await ServiceClient.shared.revokeWallpaperCode(codeValue)
+                UserDefaults.standard.removeObject(forKey: codeStorageKey)
+                UserDefaults.standard.removeObject(forKey: codeStorageKey + ".expiry")
+                self.codeValue = nil
+                codeNote = "分享码已取消。"
+            } catch { codeNote = "取消失败，请检查网络。" }
+        }
     }
 
     private func prepareShare(_ collection: WallpaperCollection, shared: Bool) {

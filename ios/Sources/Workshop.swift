@@ -4,6 +4,7 @@ import PhotosUI
 import ImageIO
 import Network
 import Security
+import CryptoKit
 
 @main
 struct CarVistaApp: App {
@@ -228,6 +229,56 @@ final class WorkshopModel: ObservableObject {
                 completion(entry)
                 self.reportSaved([entry], source: "photo", assetID: nil)
             } else { self.message = result["message"] as? String ?? "生成失败"; completion(nil) }
+        }
+    }
+
+    func importSharedCode(_ code: String, manifest: ServiceClient.WallpaperCodeManifest, completion: @escaping (String) -> Void) {
+        guard !busy else { return }
+        busy = true
+        Task {
+            do {
+                guard manifest.entries.count == 1 else { throw URLError(.cannotDecodeContentData) }
+                var payloads: [Data] = []
+                for (index, item) in manifest.entries.enumerated() {
+                    let data = try await ServiceClient.shared.wallpaperCodeFile(code, index: index)
+                    let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+                    guard data.count == item.bytes, digest == item.sha256 else { throw URLError(.cannotDecodeContentData) }
+                    payloads.append(data)
+                }
+                busy = false
+                work({
+                    var entries: [SavedWallpaper] = []
+                    var paths: [URL] = []
+                    let batch = UUID()
+                    do {
+                        for (index, data) in payloads.enumerated() {
+                            guard let image = CCEngine.decodeBitmap(data), let cg = image.cgImage,
+                                  WallpaperStorage.validSize(width: cg.width, height: cg.height),
+                                  let jpg = image.jpegData(compressionQuality: 0.85), let png = image.pngData() else { throw URLError(.cannotDecodeContentData) }
+                            let entry = SavedWallpaper(id: UUID(), created: Date(), width: cg.width, height: cg.height,
+                                mode: "导入", batchID: batch, customName: manifest.title, preservePixels: true)
+                            let metadata = Self.library.appendingPathComponent("\(entry.id).json")
+                            paths += [entry.bitmap, entry.preview, entry.originalImage, metadata]
+                            try data.write(to: entry.bitmap, options: .atomic)
+                            try jpg.write(to: entry.preview, options: .atomic)
+                            try png.write(to: entry.originalImage, options: .atomic)
+                            try JSONEncoder().encode(entry).write(to: metadata, options: .atomic)
+                            entries.append(entry)
+                        }
+                        return ["entries": entries]
+                    } catch {
+                        for path in paths { try? FileManager.default.removeItem(at: path) }
+                        return ["error": error.localizedDescription]
+                    }
+                }) { result in
+                    let entries = result["entries"] as? [SavedWallpaper] ?? []
+                    self.history.insert(contentsOf: entries, at: 0)
+                    completion(entries.isEmpty ? "导入失败，请重试。" : "已保存到我的壁纸。")
+                }
+            } catch {
+                busy = false
+                completion("下载或校验失败，请检查分享码和网络。")
+            }
         }
     }
 
