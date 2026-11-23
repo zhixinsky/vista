@@ -219,7 +219,7 @@ struct CanvasHistoryView: View {
             .toolbar {
                 Menu {
                     Button { shareCodeInput = ""; enteringCode = true } label: { Label("输入分享码", systemImage: "text.badge.plus") }
-                    Button("全部清空", role: .destructive) { clear = true }.disabled(model.history.isEmpty || model.busy)
+                    Button(role: .destructive) { clear = true } label: { Label("全部清空", systemImage: "trash") }.disabled(model.history.isEmpty || model.busy)
                 } label: { Label("壁纸工具", systemImage: "ellipsis.circle") }
             }
             .alert("输入分享码", isPresented: $enteringCode) {
@@ -281,7 +281,7 @@ struct CanvasHistoryView: View {
 
     private func lookupCode() {
         let code = shareCodeInput.replacingOccurrences(of: " ", with: "").replacingOccurrences(of: "-", with: "").uppercased()
-        guard code.range(of: "^CV[A-F0-9]{20}$", options: .regularExpression) != nil else { importResult = "分享码格式无效。"; return }
+        guard code.range(of: "^(?:[A-Z2-9]{8}|CV[A-F0-9]{20})$", options: .regularExpression) != nil else { importResult = "分享码格式无效。"; return }
         codeLoading = true
         Task {
             defer { codeLoading = false }
@@ -342,8 +342,7 @@ struct WallpaperDetailView: View {
     @State private var codeNote: String?
     @State private var codeValue: String?
     @State private var confirmRevokeCode = false
-    @State private var importingBitmap = false
-    @State private var importResult: String?
+    @State private var showShareCode = false
     private var collection: WallpaperCollection? { model.collections.first { $0.id == collectionID } }
     var body: some View {
         Group {
@@ -368,14 +367,11 @@ struct WallpaperDetailView: View {
                         }
                         .disabled(model.busy || sharing)
                         if let shareNote { Text(shareNote).font(.footnote).foregroundStyle(.secondary) }
-                        Button { importingBitmap = true } label: { Label("导入 CPBitmap 文件", systemImage: "square.and.arrow.down") }.disabled(model.busy)
-                        if let importResult { Text(importResult).font(.footnote).foregroundStyle(.secondary) }
                         if codeValue == nil {
                             Button { generateCode(collection) } label: { Label(codeBusy ? "正在生成分享码…" : "生成分享码", systemImage: "link") }.disabled(codeBusy || model.busy)
                         }
                         if let codeValue {
-                            Text(codeValue).textSelection(.enabled).font(.footnote.monospaced())
-                            Button { UIPasteboard.general.string = codeValue; codeNote = "分享码已复制。" } label: { Label("复制分享码", systemImage: "doc.on.doc") }
+                            Button { UIPasteboard.general.string = codeValue; showShareCode = true } label: { Label("查看并复制分享码", systemImage: "doc.on.doc") }
                             Button("取消此分享码", role: .destructive) { confirmRevokeCode = true }.disabled(codeBusy)
                         }
                         if let codeNote { Text(codeNote).font(.footnote).foregroundStyle(.secondary) }
@@ -388,11 +384,10 @@ struct WallpaperDetailView: View {
                 }
             } else { ContentUnavailableView("记录已删除", systemImage: "photo") }
         }.navigationTitle("壁纸详情").navigationBarTitleDisplayMode(.inline)
-            .fileImporter(isPresented: $importingBitmap, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
-                switch result {
-                case .success(let urls): model.importBitmaps(urls) { importResult = $0 }
-                case .failure(let error): importResult = "导入失败：\(error.localizedDescription)"
-                }
+            .alert("分享码已复制", isPresented: $showShareCode) {
+                Button("完成", role: .cancel) {}
+            } message: {
+                Text("\(codeValue ?? "")\n分享当前壁纸，有效期 30 天。")
             }
             .task {
                 let expiry = UserDefaults.standard.double(forKey: codeStorageKey + ".expiry")
@@ -471,6 +466,7 @@ struct WallpaperDetailView: View {
                 UserDefaults.standard.set(created.code, forKey: codeStorageKey)
                 UserDefaults.standard.set(created.expires_at, forKey: codeStorageKey + ".expiry")
                 UIPasteboard.general.string = created.code
+                showShareCode = true
                 codeNote = "已复制。有效期至 \(Date(timeIntervalSince1970: created.expires_at / 1000).formatted())；后续修改不会同步。"
             } catch { codeNote = "生成失败，请检查网络和后台服务。" }
         }
