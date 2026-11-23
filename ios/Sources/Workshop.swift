@@ -58,7 +58,7 @@ final class WorkshopModel: ObservableObject {
         selfChecking = true
         let started = ProcessInfo.processInfo.systemUptime
         work({ CCEngine.selfCheck() as? [String: Any] ?? [:] }) { result in
-            let remaining = max(0, 1.5 - (ProcessInfo.processInfo.systemUptime - started))
+            let remaining = max(0, 3.0 - (ProcessInfo.processInfo.systemUptime - started))
             DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
                 self.selfCheckResult = result
                 self.selfCheckDate = Date()

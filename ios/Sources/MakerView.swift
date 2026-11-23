@@ -177,7 +177,7 @@ struct ComposeWallpaperView: View {
                     if sharedBusy != nil {
                         HStack(spacing: 8) {
                             ProgressView()
-                            Text("正在下载原图，请稍候").font(.caption.weight(.semibold))
+                            Text("正在载入壁纸，请稍候").font(.caption.weight(.semibold))
                         }
                     } else if !sharedNote.isEmpty {
                         Text(sharedNote).font(.caption).foregroundStyle(.secondary)
@@ -191,8 +191,9 @@ struct ComposeWallpaperView: View {
                                             .frame(width: 160, height: 90)
                                             .clipShape(RoundedRectangle(cornerRadius: 10))
                                             .overlay {
-                                                if sharedBusy == item.id { WallpaperDownloadCover() }
+                                                if sharedBusy == item.id { ProgressView().padding(10).background(.regularMaterial, in: Capsule()).allowsHitTesting(false) }
                                             }
+                                            .contentShape(Rectangle())
                                     }.buttonStyle(.plain)
                                         .disabled(locked || sharedBusy != nil)
                                         .accessibilityLabel("导入\(item.title)")
@@ -407,18 +408,23 @@ struct ComposeWallpaperView: View {
     private func importShared(_ item: SharedWallpaper) {
         guard !locked, sharedBusy == nil else { return }
         sharedBusy = item.id
+        loading = true
         problem = nil
         Task {
-            defer { sharedBusy = nil }
+            defer { sharedBusy = nil; loading = false }
             do {
-                let (data, response) = try await URLSession.shared.data(from: item.originalURL)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else {
-                    problem = "无法下载这张壁纸。"
+                let data = try await CatalogLibrary.cachedOriginalData(item.originalURL)
+                var incoming = try await Task.detached(priority: .userInitiated) { try MakerDraft.importPhoto(data: data) }.value
+                incoming.sourceName = "精选壁纸"
+                incoming.remoteSource = "share"
+                incoming.remoteAssetID = item.id
+                guard !Task.isCancelled else {
+                    try? FileManager.default.removeItem(at: incoming.url)
                     return
                 }
-                galleryImport = GalleryImport(data: data, source: "share", assetID: item.id)
+                try replaceCurrent(with: incoming)
             } catch {
-                problem = "无法下载这张壁纸。"
+                problem = "载入壁纸失败，请重试。"
             }
         }
     }
