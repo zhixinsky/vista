@@ -19,6 +19,23 @@ struct WallpaperColorView: View {
     @State private var selectedSection: ColorSection = .region
     var resetToken: Int = 0
 
+    private static var neutralEdge: WallpaperLeftEdgeBlend {
+        var edge = WallpaperLeftEdgeBlend()
+        edge.brightness = 0
+        edge.saturation = 0
+        return edge
+    }
+    private static var neutralMask: WallpaperMaskCompensation {
+        var mask = WallpaperMaskCompensation()
+        mask.opacity = 0
+        return mask
+    }
+    private static var neutralAdvanced: WallpaperAdvancedGrade {
+        var grade = WallpaperAdvancedGrade()
+        grade.protectHighlights = false
+        return grade
+    }
+
     private enum ColorSection: String, CaseIterable {
         case region = "区域调节"
         case overall = "整体调节"
@@ -32,9 +49,9 @@ struct WallpaperColorView: View {
         var initialColor = photo.adjustment.color ?? .init()
         initialColor.leftEdge?.advanced?.local = true
         _adjustment = State(initialValue: initialColor)
-        _savedEdge = State(initialValue: photo.adjustment.color?.leftEdge ?? .init())
-        _savedMask = State(initialValue: photo.adjustment.color?.mask ?? .init())
-        var initialAdvanced = photo.adjustment.color?.leftEdge?.advanced ?? .init()
+        _savedEdge = State(initialValue: photo.adjustment.color?.leftEdge ?? Self.neutralEdge)
+        _savedMask = State(initialValue: photo.adjustment.color?.mask ?? Self.neutralMask)
+        var initialAdvanced = photo.adjustment.color?.leftEdge?.advanced ?? Self.neutralAdvanced
         initialAdvanced.local = true
         _savedAdvanced = State(initialValue: initialAdvanced)
     }
@@ -237,10 +254,13 @@ struct WallpaperColorView: View {
     }
 
     private func resetAll() {
-        adjustment = .init()
-        savedEdge = .init()
-        savedMask = .init()
-        savedAdvanced = .init()
+        var reset = WallpaperColorAdjustment()
+        reset.leftEdge = Self.neutralEdge
+        reset.mask = Self.neutralMask
+        adjustment = reset
+        savedEdge = Self.neutralEdge
+        savedMask = Self.neutralMask
+        savedAdvanced = Self.neutralAdvanced
         showOverallMore = false
         showRegionMore = false
         showOriginal = false

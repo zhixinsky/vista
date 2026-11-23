@@ -231,6 +231,50 @@ final class WorkshopModel: ObservableObject {
         }
     }
 
+    func importBitmaps(_ urls: [URL], completion: @escaping (String) -> Void) {
+        guard !busy, !urls.isEmpty else { return }
+        work({
+            var entries: [SavedWallpaper] = []
+            var errors: [String] = []
+            for url in urls {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard url.pathExtension.lowercased() == "cpbitmap" else { errors.append("\(url.lastPathComponent)：文件类型不正确"); continue }
+                do {
+                    let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                    guard values.isRegularFile == true, let size = values.fileSize, size > 0, size <= 100_000_000 else {
+                        errors.append("\(url.lastPathComponent)：文件无效或超过 100 MB"); continue
+                    }
+                    let data = try Data(contentsOf: url)
+                    guard data.count == size, let image = CCEngine.decodeBitmap(data), let cg = image.cgImage,
+                          WallpaperStorage.validSize(width: cg.width, height: cg.height),
+                          let jpg = image.jpegData(compressionQuality: 0.85), let png = image.pngData() else {
+                        errors.append("\(url.lastPathComponent)：无法解码"); continue
+                    }
+                    let entry = SavedWallpaper(id: UUID(), created: Date(), width: cg.width, height: cg.height,
+                        mode: "导入", customName: url.deletingPathExtension().lastPathComponent, preservePixels: true)
+                    let metadata = Self.library.appendingPathComponent("\(entry.id).json")
+                    do {
+                        try data.write(to: entry.bitmap, options: .atomic)
+                        try jpg.write(to: entry.preview, options: .atomic)
+                        try png.write(to: entry.originalImage, options: .atomic)
+                        try JSONEncoder().encode(entry).write(to: metadata, options: .atomic)
+                        entries.append(entry)
+                    } catch {
+                        for file in [entry.bitmap, entry.preview, entry.originalImage, metadata] { try? FileManager.default.removeItem(at: file) }
+                        throw error
+                    }
+                } catch { errors.append("\(url.lastPathComponent)：\(error.localizedDescription)") }
+            }
+            return ["entries": entries, "errors": errors]
+        }) { result in
+            let entries = result["entries"] as? [SavedWallpaper] ?? []
+            let errors = result["errors"] as? [String] ?? []
+            self.history.insert(contentsOf: entries.reversed(), at: 0)
+            completion("已导入 \(entries.count) 个文件。" + (errors.isEmpty ? "" : "\n" + errors.joined(separator: "\n")))
+        }
+    }
+
     func unlockWallpapers() {
         guard !busy else { return }
         message = "正在解除壁纸锁定…"

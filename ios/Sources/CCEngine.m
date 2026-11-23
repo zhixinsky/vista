@@ -329,6 +329,7 @@ static NSString *CCRootForPath(NSString *path);
         : @"容器已找到，但没有可识别的 CPBitmap。请先在车机切换内置壁纸后重试；也可能是格式变化。";
     return @{@"ok":@YES, @"root":root, @"files":files, @"issues":issues, @"message":message};
 }
++ (UIImage *)decodeBitmap:(NSData *)data { return CCDecode(data); }
 + (UIImage *)preview:(NSString *)path {
     if (!CCAllowed(path)) return nil;
     return CCDecode(wq_read(path, 0, NULL));

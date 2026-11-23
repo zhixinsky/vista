@@ -6,6 +6,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSString *)logs;
 + (void)cancelScan;
 + (NSDictionary *)discover:(BOOL)allowFullScan;
++ (nullable UIImage *)decodeBitmap:(NSData *)data;
 + (nullable UIImage *)preview:(NSString *)path;
 + (NSDictionary *)encode:(UIImage *)image to:(NSString *)path;
 + (NSDictionary *)saveSnapshot:(NSArray<NSDictionary *> *)targets;

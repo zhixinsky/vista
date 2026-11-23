@@ -170,6 +170,21 @@ actor ServiceClient {
         } catch { return nil }
     }
 
+    func removeShare(_ id: UUID) async -> Bool {
+        guard let token = await ensureToken() else { return false }
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString)"), timeoutInterval: 20)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return false }
+            var ids = Set(UserDefaults.standard.string(forKey: "CarVistaSharedHistory")?.split(separator: "|").map(String.init) ?? [])
+            ids.remove(id.uuidString)
+            UserDefaults.standard.set(ids.sorted().joined(separator: "|"), forKey: "CarVistaSharedHistory")
+            return true
+        } catch { return false }
+    }
+
     func updateShare(_ id: UUID, title: String, description: String, author: String = "") async -> Bool {
         guard let token = await ensureToken() else { return false }
         var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString)/metadata"), timeoutInterval: 20)

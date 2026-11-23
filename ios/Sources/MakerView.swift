@@ -290,7 +290,7 @@ struct ComposeWallpaperView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        Button { showTool(.history) } label: { Label("历史记录", systemImage: "clock") }
+                        Button { showTool(.history) } label: { Label("我的壁纸", systemImage: "photo.stack") }
                         Button { showTool(.cache) } label: { Label("壁纸缓存", systemImage: "folder") }
                     } label: {
                         Label("壁纸工具", systemImage: "ellipsis.circle")

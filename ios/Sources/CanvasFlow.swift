@@ -2,6 +2,7 @@
 import SwiftUI
 import PhotosUI
 import ImageIO
+import UniformTypeIdentifiers
 
 enum CanvasTheme {
     static let accent = Color(red: 0.0, green: 0.55, blue: 0.58)
@@ -98,7 +99,7 @@ struct CanvasHomeView: View {
             .tabItem { Label("图库", systemImage: "photo.stack") }.tag(Tab.gallery)
 
             NavigationStack { CanvasHistoryView() }
-                .tabItem { Label("历史记录", systemImage: "clock") }.tag(Tab.history)
+                .tabItem { Label("我的壁纸", systemImage: "photo.stack") }.tag(Tab.history)
 
             NavigationStack { CanvasSettingsView() }
                 .tabItem { Label("设置", systemImage: "gearshape") }.tag(Tab.settings)
@@ -126,6 +127,8 @@ struct CanvasHistoryView: View {
     @State private var sharingID: UUID?
     @State private var shareNotes: [UUID: String] = [:]
     @State private var shareFilter: HistoryShareFilter = .all
+    @State private var importingBitmap = false
+    @State private var importResult: String?
     private var sharedIDs: Set<String> { Set(sharedHistory.split(separator: "|").map(String.init)) }
     private var visibleCollections: [WallpaperCollection] {
         model.collections.filter { collection in
@@ -139,6 +142,11 @@ struct CanvasHistoryView: View {
     }
     var body: some View {
         List {
+            Section {
+                Button { importingBitmap = true } label: { Label("导入 CPBitmap 文件", systemImage: "square.and.arrow.down") }
+                    .disabled(model.busy)
+                if let importResult { Text(importResult).font(.footnote).foregroundStyle(.secondary) }
+            }
             Picker("共享状态", selection: $shareFilter) {
                 ForEach(HistoryShareFilter.allCases) { Text($0.rawValue).tag($0) }
             }.pickerStyle(.segmented)
@@ -157,7 +165,7 @@ struct CanvasHistoryView: View {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(collection.title).font(.headline).lineLimit(2)
                                 Text(collection.first.created, format: .dateTime.year().month().day().hour().minute()).font(.caption).foregroundStyle(.secondary)
-                                Text("\(collection.mode) · 本地生成").font(.caption).foregroundStyle(.secondary)
+                                Text("\(collection.mode) · 本地壁纸").font(.caption).foregroundStyle(.secondary)
                                 if let note = shareNotes[collection.id] {
                                     Text(note).font(.caption).foregroundStyle(.secondary)
                                 }
@@ -192,7 +200,13 @@ struct CanvasHistoryView: View {
                     WallpaperDetailView(collectionID: collection.id)
                 }
             }
-            .navigationTitle("历史记录").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+            .fileImporter(isPresented: $importingBitmap, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
+                switch result {
+                case .success(let urls): model.importBitmaps(urls) { importResult = $0 }
+                case .failure(let error): importResult = "导入失败：\(error.localizedDescription)"
+                }
+            }
+            .navigationTitle("我的壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .toolbar { Button("全部清空") { clear = true }.disabled(model.history.isEmpty || model.busy) }
             .confirmationDialog("清空所有本地壁纸记录？已应用的车机壁纸和恢复备份会保留。", isPresented: $clear, titleVisibility: .visible) {
                 Button("全部清空", role: .destructive) { model.deleteHistory(model.history) }
@@ -268,6 +282,8 @@ struct WallpaperDetailView: View {
     @State private var shareTitle = ""
     @State private var shareAuthor = ""
     @State private var editingShare = false
+    @State private var editingShareID: UUID?
+    @State private var confirmingUnshare = false
     private var collection: WallpaperCollection? { model.collections.first { $0.id == collectionID } }
     var body: some View {
         Group {
@@ -285,8 +301,10 @@ struct WallpaperDetailView: View {
                     Section {
                         Button { applying = true } label: { Label("应用到 CarPlay 壁纸", systemImage: "car.side.fill").font(.headline) }.disabled(model.busy)
                         let shared = collection.entries.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) }
-                        Button(sharing ? "正在处理…" : shared ? "编辑共享" : "共享到图库") {
+                        Button {
                             prepareShare(collection, shared: shared)
+                        } label: {
+                            Label(sharing ? "正在处理…" : shared ? "编辑共享" : "共享到图库", systemImage: shared ? "square.and.pencil" : "square.and.arrow.up")
                         }
                         .disabled(model.busy || sharing)
                         if let shareNote { Text(shareNote).font(.footnote).foregroundStyle(.secondary) }
@@ -311,6 +329,9 @@ struct WallpaperDetailView: View {
                 NavigationStack {
                     Form {
                         Section("作者") { TextField("作者，可以留空", text: $shareAuthor) }
+                        if editingShare {
+                            Section { Button("取消共享", role: .destructive) { confirmingUnshare = true }.disabled(sharing) }
+                        }
                         Section("壁纸名称") { TextField("壁纸名称", text: $shareTitle) }
                         Section {
                             TextField("写一段介绍，可以留空", text: $shareText, axis: .vertical)
@@ -318,6 +339,10 @@ struct WallpaperDetailView: View {
                         } footer: {
                             Text("介绍会显示在图库的共享分类里。")
                         }
+                    }
+                    .confirmationDialog("取消共享后，壁纸将从公共图库移除。", isPresented: $confirmingUnshare, titleVisibility: .visible) {
+                        Button("确认取消共享", role: .destructive) { removeShare() }
+                        Button("返回", role: .cancel) {}
                     }
                     .navigationTitle(editingShare ? "编辑共享" : "精选壁纸")
                     .navigationBarTitleDisplayMode(.inline)
@@ -352,6 +377,7 @@ struct WallpaperDetailView: View {
 
     private func prepareShare(_ collection: WallpaperCollection, shared: Bool) {
         editingShare = shared
+        editingShareID = nil
         shareNote = nil
         shareTitle = collection.title
         shareAuthor = ""
@@ -360,15 +386,41 @@ struct WallpaperDetailView: View {
         sharing = true
         Task {
             defer { sharing = false }
-            let shown = collection.entries.first { $0.mode == "车机" } ?? collection.first
-            guard let metadata = await ServiceClient.shared.shareMetadata(shown.id) else {
-                shareNote = "无法读取共享信息，请确认后台已更新并重试。"
+            let sharedIDs = Set(sharedHistory.split(separator: "|").map(String.init))
+            let candidates = collection.entries.filter { sharedIDs.contains($0.id.uuidString) }
+            var found: (UUID, ServiceClient.ShareMetadata)?
+            for entry in candidates {
+                if let metadata = await ServiceClient.shared.shareMetadata(entry.id) {
+                    found = (entry.id, metadata)
+                    break
+                }
+            }
+            guard let (id, metadata) = found else {
+                shareNote = "无法读取共享信息，请检查网络、登录状态或共享是否仍存在。"
                 return
             }
+            editingShareID = id
             shareTitle = metadata.title
             shareText = metadata.description
             shareAuthor = metadata.author ?? ""
             shareDraft = true
+        }
+    }
+
+    private func removeShare() {
+        guard let id = editingShareID else { return }
+        sharing = true
+        shareNote = nil
+        Task {
+            let ok = await ServiceClient.shared.removeShare(id)
+            sharing = false
+            if ok {
+                shareDraft = false
+                shareNote = "已取消共享。"
+                editingShareID = nil
+            } else {
+                shareNote = "取消共享失败，请检查网络后重试。"
+            }
         }
     }
 
@@ -384,7 +436,11 @@ struct WallpaperDetailView: View {
             defer { sharing = false }
             let ok: Bool
             if editing {
-                ok = await ServiceClient.shared.updateShare(shown.id, title: title, description: intro, author: author)
+                if let editingShareID {
+                    ok = await ServiceClient.shared.updateShare(editingShareID, title: title, description: intro, author: author)
+                } else {
+                    ok = false
+                }
             } else {
                 ok = await ServiceClient.shared.submitShare(shown, title: title, description: intro, author: author)
             }
@@ -710,7 +766,7 @@ private struct CacheDetailView: View {
                 else { ContentUnavailableView("暂时无法预览", systemImage: "photo") }
                 Text("\(target.mode) · \(target.width) × \(target.height)")
             }
-            Section { NavigationLink("从历史记录选择壁纸") { CanvasHistoryView() }; NavigationLink("制作新壁纸") { ComposeWallpaperView() } }
+            Section { NavigationLink("从我的壁纸选择") { CanvasHistoryView() }; NavigationLink("制作新壁纸") { ComposeWallpaperView() } }
             Section { DisclosureGroup("文件信息") { Text(target.name).font(.caption); Text(target.id).font(.caption).textSelection(.enabled) } }
         }.navigationTitle("缓存预览").navigationBarTitleDisplayMode(.inline)
             .task { preview = await Task.detached { CCEngine.preview(target.id) }.value; loading = false }
@@ -722,7 +778,7 @@ struct CanvasGuideView: View {
     private let steps = [
         ("生成车机壁纸缓存", "停车后，在车机 CarPlay 的“设置 → 壁纸”中切换几张内置图片壁纸。不同系统的排列可能不同。"),
         ("选择照片", "在“壁纸”里选相册照片，或点“精选壁纸”查看大家共享的壁纸。需要裁剪时点“裁剪”。"),
-        ("选择目标并应用", "点“应用到 CarPlay”即可生成文件并选择替换目标，原文件会自动备份。历史记录在底部菜单，壁纸缓存位于“壁纸”右上角。"),
+        ("选择目标并应用", "点“应用到 CarPlay”即可生成文件并选择替换目标，原文件会自动备份。我的壁纸在底部菜单，壁纸缓存位于“壁纸”右上角。"),
         ("重启 CarPlay，让壁纸生效", "替换后点“重启 CarPlay”，尝试重载系统界面。返回桌面后重新连接车机，确认新壁纸是否生效。若仍显示旧图，请手动重启 iPhone。需要还原时，可在设置中打开“备份与恢复”。")]
     var body: some View {
         NavigationStack {
