@@ -86,13 +86,16 @@ private struct NativeWallpaperZoom: UIViewRepresentable {
     static func dismantleUIView(_ view: WallpaperZoomView, coordinator: ()) { view.restoreScrolling() }
 }
 
-private final class WallpaperZoomView: UIView {
+private final class WallpaperZoomView: UIView, UIGestureRecognizerDelegate {
     private let picture = UIImageView()
     private let backdrop = UIImageView()
     private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
     private var identity: UUID?
     private var scale: CGFloat = 1
     private var initialScale: CGFloat = 1
+    private var offset = CGPoint.zero
+    private var panStart = CGPoint.zero
+    private lazy var imagePan = UIPanGestureRecognizer(target: self, action: #selector(pan(_:)))
     private weak var parentScroll: UIScrollView?
     private var originalMaximumTouches: Int?
     override init(frame: CGRect) {
@@ -106,6 +109,9 @@ private final class WallpaperZoomView: UIView {
         picture.contentMode = .scaleToFill
         addSubview(picture)
         addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(pinch(_:))))
+        imagePan.maximumNumberOfTouches = 1
+        imagePan.delegate = self
+        addGestureRecognizer(imagePan)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func didMoveToWindow() {
@@ -119,6 +125,7 @@ private final class WallpaperZoomView: UIView {
                     parentScroll = scroll
                     originalMaximumTouches = scroll.panGestureRecognizer.maximumNumberOfTouches
                     scroll.panGestureRecognizer.maximumNumberOfTouches = 1
+                    scroll.panGestureRecognizer.require(toFail: imagePan)
                 }
                 break
             }
@@ -133,7 +140,7 @@ private final class WallpaperZoomView: UIView {
         originalMaximumTouches = nil
     }
     func configure(image: UIImage?, id: UUID?) {
-        if identity != id { scale = 1; identity = id }
+        if identity != id { scale = 1; offset = .zero; identity = id; setNeedsLayout() }
         if picture.image !== image { picture.image = image; backdrop.image = image; setNeedsLayout() }
     }
     override func layoutSubviews() {
@@ -143,7 +150,22 @@ private final class WallpaperZoomView: UIView {
         guard let image = picture.image, image.size.width > 0 else { return }
         let width = bounds.width * scale
         let height = width * image.size.height / image.size.width
-        picture.frame = CGRect(x: (bounds.width - width) / 2, y: (bounds.height - height) / 2, width: width, height: height)
+        let maxX = max(0, (width - bounds.width) / 2)
+        let maxY = max(0, (height - bounds.height) / 2)
+        offset.x = min(maxX, max(-maxX, offset.x))
+        offset.y = min(maxY, max(-maxY, offset.y))
+        if scale <= 1.001 { offset = .zero }
+        picture.frame = CGRect(x: (bounds.width - width) / 2 + offset.x, y: (bounds.height - height) / 2 + offset.y, width: width, height: height)
+    }
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        gestureRecognizer !== imagePan || (scale > 1.001 && picture.image != nil)
+    }
+    @objc private func pan(_ gesture: UIPanGestureRecognizer) {
+        if gesture.state == .began { panStart = offset }
+        let movement = gesture.translation(in: self)
+        offset = CGPoint(x: panStart.x + movement.x, y: panStart.y + movement.y)
+        setNeedsLayout()
+        layoutIfNeeded()
     }
     @objc private func pinch(_ gesture: UIPinchGestureRecognizer) {
         guard picture.image != nil else { return }
