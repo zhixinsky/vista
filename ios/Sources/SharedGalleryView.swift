@@ -110,11 +110,11 @@ struct SharedWallpaperGalleryView: View {
                                     .allowsHitTesting(false)
                             }
                             .overlay {
-                                if busyID == item.id { WallpaperDownloadCover() }
+                                if busyID == item.id { WallpaperDownloadCover().allowsHitTesting(false) }
                             }
+                            .contentShape(Rectangle())
                         }
-                        .frame(height: 125)
-                        .contentShape(Rectangle())
+                        .frame(maxWidth: .infinity).frame(height: 125)
                         .buttonStyle(.plain).disabled(busyID != nil || model.busy)
                             .accessibilityLabel("查看\(item.title)")
                         HStack(alignment: .center, spacing: 3) {
@@ -214,11 +214,7 @@ struct SharedWallpaperGalleryView: View {
         Task {
             defer { busyID = nil }
             do {
-                let (data, response) = try await URLSession.shared.data(from: item.originalURL)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else {
-                    note = "无法下载这张壁纸。"
-                    return
-                }
+                let data = try await CatalogLibrary.cachedOriginalData(item.originalURL)
                 use(GalleryPick(data: data, source: "share", assetID: item.id))
             } catch {
                 note = "无法下载这张壁纸。"
@@ -281,9 +277,8 @@ private struct SharedWallpaperPreview: View {
         loading = true; failed = false
         defer { loading = false }
         do {
-            let (data, response) = try await URLSession.shared.data(from: item.originalURL)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-                  let decoded = UIImage(data: data) else { failed = true; return }
+            let data = try await CatalogLibrary.cachedOriginalData(item.originalURL)
+            guard let decoded = UIImage(data: data) else { failed = true; return }
             imageData = data; image = decoded
         } catch { failed = true }
     }

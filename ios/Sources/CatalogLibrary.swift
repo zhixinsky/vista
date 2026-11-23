@@ -182,6 +182,17 @@ enum CatalogLibrary {
         return UIImage(contentsOfFile: file.path)
     }
 
+    static func cachedOriginalData(_ url: URL) async throws -> Data {
+        let remote = ServiceClient.publicURL(url)
+        let file = try await cachedFile(remote, name: imageName(remote))
+        let data = try Data(contentsOf: file)
+        guard UIImage(data: data)?.cgImage != nil else {
+            try? FileManager.default.removeItem(at: file)
+            throw URLError(.cannotDecodeContentData)
+        }
+        return data
+    }
+
     static func cachedImage(_ url: URL) async -> UIImage? {
         let remote = ServiceClient.publicURL(url)
         guard let file = try? await cachedFile(remote, name: imageName(remote)) else { return nil }
