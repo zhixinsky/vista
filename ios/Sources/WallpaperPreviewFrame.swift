@@ -61,17 +61,26 @@ struct CatalogWallpaperPreview: View {
 struct ZoomableWallpaperPreview: View {
     let image: UIImage?
     let resetID: UUID?
+    @State private var resetViewID = 0
     var body: some View {
         Color(uiColor: .tertiarySystemFill)
             .aspectRatio(16.0 / 9.0, contentMode: .fit)
-            .overlay { NativeWallpaperZoom(image: image, resetID: resetID) }
+            .overlay { NativeWallpaperZoom(image: image, resetID: resetID, resetViewID: resetViewID) }
             .overlay(alignment: .bottomTrailing) {
                 if image != nil {
-                    Label("捏合缩放", systemImage: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.7))
-                        .padding(.horizontal, 8).padding(.vertical, 5)
-                        .background(.black.opacity(0.18), in: Capsule())
-                        .padding(10).allowsHitTesting(false)
+                    HStack(spacing: 6) {
+                        Button { resetViewID += 1 } label: {
+                            Label("复位", systemImage: "arrow.counterclockwise")
+                                .padding(.horizontal, 8).frame(minHeight: 32)
+                                .background(.black.opacity(0.18), in: Capsule())
+                        }.buttonStyle(.plain).accessibilityLabel("复位预览缩放和位置")
+                        Label("捏合缩放", systemImage: "arrow.up.left.and.arrow.down.right")
+                            .padding(.horizontal, 8).frame(minHeight: 32)
+                            .background(.black.opacity(0.18), in: Capsule())
+                            .allowsHitTesting(false)
+                    }
+                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.white.opacity(0.7))
+                    .padding(10)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 18))
@@ -81,8 +90,9 @@ struct ZoomableWallpaperPreview: View {
 private struct NativeWallpaperZoom: UIViewRepresentable {
     let image: UIImage?
     let resetID: UUID?
+    let resetViewID: Int
     func makeUIView(context: Context) -> WallpaperZoomView { WallpaperZoomView() }
-    func updateUIView(_ view: WallpaperZoomView, context: Context) { view.configure(image: image, id: resetID) }
+    func updateUIView(_ view: WallpaperZoomView, context: Context) { view.configure(image: image, id: resetID, resetViewID: resetViewID) }
     static func dismantleUIView(_ view: WallpaperZoomView, coordinator: ()) { view.restoreScrolling() }
 }
 
@@ -91,6 +101,7 @@ private final class WallpaperZoomView: UIView, UIGestureRecognizerDelegate {
     private let backdrop = UIImageView()
     private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
     private var identity: UUID?
+    private var lastResetViewID = 0
     private var scale: CGFloat = 1
     private var initialScale: CGFloat = 1
     private var offset = CGPoint.zero
@@ -139,8 +150,14 @@ private final class WallpaperZoomView: UIView, UIGestureRecognizerDelegate {
         parentScroll = nil
         originalMaximumTouches = nil
     }
-    func configure(image: UIImage?, id: UUID?) {
-        if identity != id { scale = 1; offset = .zero; identity = id; setNeedsLayout() }
+    func configure(image: UIImage?, id: UUID?, resetViewID: Int) {
+        if identity != id || lastResetViewID != resetViewID {
+            scale = 1
+            offset = .zero
+            identity = id
+            lastResetViewID = resetViewID
+            setNeedsLayout()
+        }
         if picture.image !== image { picture.image = image; backdrop.image = image; setNeedsLayout() }
     }
     override func layoutSubviews() {
