@@ -182,7 +182,8 @@ struct CanvasHistoryView: View {
                             VStack(alignment: .leading, spacing: 5) {
                                 Text(collection.title).font(.headline).lineLimit(2)
                                 Text(collection.first.created, format: .dateTime.year().month().day().hour().minute()).font(.caption).foregroundStyle(.secondary)
-                                Text("本地壁纸").font(.caption).foregroundStyle(.secondary)
+                                Text(collection.first.sharedAuthor.map { "\($0)分享的壁纸" } ?? "本地壁纸")
+                                    .font(.caption).foregroundStyle(.secondary)
                                 if let note = shareNotes[collection.id] {
                                     Text(note).font(.caption).foregroundStyle(.secondary)
                                 }

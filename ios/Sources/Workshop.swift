@@ -277,7 +277,8 @@ final class WorkshopModel: ObservableObject {
                                   WallpaperStorage.validSize(width: cg.width, height: cg.height),
                                   let jpg = image.jpegData(compressionQuality: 0.85), let png = image.pngData() else { throw URLError(.cannotDecodeContentData) }
                             let entry = SavedWallpaper(id: UUID(), created: Date(), width: cg.width, height: cg.height,
-                                mode: "导入", batchID: batch, customName: manifest.title, preservePixels: true)
+                                mode: "导入", batchID: batch, customName: manifest.title, preservePixels: true,
+                                sharedAuthor: manifest.author?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? manifest.author : "车友")
                             let metadata = Self.library.appendingPathComponent("\(entry.id).json")
                             paths += [entry.bitmap, entry.preview, entry.originalImage, metadata]
                             try data.write(to: entry.bitmap, options: .atomic)
