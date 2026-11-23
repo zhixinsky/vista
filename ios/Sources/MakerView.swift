@@ -26,6 +26,7 @@ struct ComposeWallpaperView: View {
     @State private var sharedTop = Array(SharedWallpaper.saved.prefix(10))
     @State private var sharedNote = ""
     @State private var sharedBusy: String?
+    @State private var sharedDownloading = false
     @State private var sharedComments: SharedWallpaper?
     @State private var seriesEntries = GalleryCategory.savedSeriesHomeEntries(includeHidden: false)
     @State private var seriesNote = ""
@@ -160,7 +161,6 @@ struct ComposeWallpaperView: View {
                             if let openGallery { Button("在线图库", action: openGallery).buttonStyle(.bordered) }
                         }.controlSize(.small)
                     }
-                    if loading { ProgressView("正在导入照片…") }
                     if let problem { Text(problem).font(.subheadline).foregroundStyle(.red) }
                 }.padding(16).frame(maxWidth: .infinity)
                     .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
@@ -174,12 +174,7 @@ struct ComposeWallpaperView: View {
                             Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(openShared == nil).accessibilityIdentifier("wallpaper.shared")
-                    if sharedBusy != nil {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("正在载入壁纸，请稍候").font(.caption.weight(.semibold))
-                        }
-                    } else if !sharedNote.isEmpty {
+                    if !sharedNote.isEmpty {
                         Text(sharedNote).font(.caption).foregroundStyle(.secondary)
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -191,7 +186,15 @@ struct ComposeWallpaperView: View {
                                             .frame(width: 160, height: 90)
                                             .clipShape(RoundedRectangle(cornerRadius: 10))
                                             .overlay {
-                                                if sharedBusy == item.id { ProgressView().padding(10).background(.regularMaterial, in: Capsule()).allowsHitTesting(false) }
+                                                if sharedBusy == item.id && sharedDownloading {
+                                                    ZStack {
+                                                        Color.black.opacity(0.4)
+                                                        VStack(spacing: 6) {
+                                                            ProgressView().tint(.white)
+                                                            Text("正在下载中").font(.caption.weight(.semibold)).foregroundStyle(.white)
+                                                        }
+                                                    }.allowsHitTesting(false)
+                                                }
                                             }
                                             .contentShape(Rectangle())
                                     }.buttonStyle(.plain)
@@ -408,12 +411,14 @@ struct ComposeWallpaperView: View {
     private func importShared(_ item: SharedWallpaper) {
         guard !locked, sharedBusy == nil else { return }
         sharedBusy = item.id
+        sharedDownloading = CatalogLibrary.savedImage(item.originalURL) == nil
         loading = true
         problem = nil
         Task {
-            defer { sharedBusy = nil; loading = false }
+            defer { sharedBusy = nil; sharedDownloading = false; loading = false }
             do {
                 let data = try await CatalogLibrary.cachedOriginalData(item.originalURL)
+                sharedDownloading = false
                 var incoming = try await Task.detached(priority: .userInitiated) { try MakerDraft.importPhoto(data: data) }.value
                 incoming.sourceName = "精选壁纸"
                 incoming.remoteSource = "share"
