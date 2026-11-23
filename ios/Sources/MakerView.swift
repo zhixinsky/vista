@@ -77,7 +77,7 @@ struct ComposeWallpaperView: View {
                     }
                 }
                 VStack(spacing: 14) {
-                    WallpaperPreviewFrame(image: preview)
+                    ZoomableWallpaperPreview(image: preview, resetID: photo?.id)
                         .overlay {
                             if photos.isEmpty {
                                 Label("选择一张壁纸", systemImage: "photo.on.rectangle.angled")
@@ -86,10 +86,9 @@ struct ComposeWallpaperView: View {
                             }
                         }
                         .overlay(alignment: .topTrailing) {
-                            if previewing && preview != nil { ProgressView().padding(12).background(.regularMaterial, in: Capsule()) }
+                            if previewing && preview != nil { ProgressView().padding(12).background(.regularMaterial, in: Capsule()).allowsHitTesting(false) }
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 18))
-                        .allowsHitTesting(false)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel("当前壁纸预览")
                         .accessibilityIdentifier("maker.preview")
