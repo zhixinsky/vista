@@ -157,7 +157,7 @@ private final class WallpaperZoomView: UIView, UIGestureRecognizerDelegate {
         if scale <= 1.001 { offset = .zero }
         picture.frame = CGRect(x: (bounds.width - width) / 2 + offset.x, y: (bounds.height - height) / 2 + offset.y, width: width, height: height)
     }
-    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         gestureRecognizer !== imagePan || (scale > 1.001 && picture.image != nil)
     }
     @objc private func pan(_ gesture: UIPanGestureRecognizer) {

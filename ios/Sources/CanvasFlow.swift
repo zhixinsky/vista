@@ -244,7 +244,16 @@ struct CanvasHistoryView: View {
                                 codeManifest = nil
                                 model.importSharedCode(code, manifest: manifest) { importResult = $0 }
                             }.disabled(model.busy)
-                        }.navigationTitle("分享壁纸").toolbar { Button("关闭") { codeManifest = nil } }
+                        }
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .principal) {
+                                let author = manifest.author?.trimmingCharacters(in: .whitespacesAndNewlines)
+                                (Text(author?.isEmpty == false ? author! : "车友").bold() + Text("分享的壁纸"))
+                                    .font(.system(size: 9)).lineLimit(1)
+                            }
+                            ToolbarItem(placement: .confirmationAction) { Button("关闭") { codeManifest = nil } }
+                        }
                     }.presentationDetents([.medium])
                 }
             }

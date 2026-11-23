@@ -171,6 +171,7 @@ actor ServiceClient {
     }
 
     struct WallpaperCodeManifest: Decodable {
+        let author: String?
         struct Entry: Decodable { let mode: String; let bytes: Int; let sha256: String }
         let title: String
         let expires_at: Double
@@ -186,6 +187,7 @@ actor ServiceClient {
             body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(key)\"\r\n\r\n\(value)\r\n".utf8))
         }
         field("title", title)
+        field("source_id", entries[0].id.uuidString.lowercased())
         field("modes", String(data: try JSONEncoder().encode(entries.map(\.mode)), encoding: .utf8)!)
         for (index, entry) in entries.enumerated() {
             let data = try Data(contentsOf: entry.bitmap)
