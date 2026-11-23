@@ -198,7 +198,7 @@ struct ComposeWallpaperView: View {
                                             }
                                             .contentShape(Rectangle())
                                     }.buttonStyle(.plain)
-                                        .disabled(locked || sharedBusy != nil)
+                                        .disabled(locked)
                                         .accessibilityLabel("导入\(item.title)")
                                     Text(item.title).font(.caption).lineLimit(1)
                                     HStack {
@@ -259,6 +259,7 @@ struct ComposeWallpaperView: View {
                 CarPlayStatusCard()
             }.padding(20).frame(maxWidth: 680).frame(maxWidth: .infinity)
         }.background(Color(uiColor: .systemGroupedBackground)).tint(CanvasTheme.accent)
+            .allowsHitTesting(sharedBusy == nil)
             .onChange(of: photo?.id) { _, id in
                 if id != nil { withAnimation { scroll.scrollTo("currentWallpaper", anchor: .top) } }
             }
@@ -412,10 +413,9 @@ struct ComposeWallpaperView: View {
         guard !locked, sharedBusy == nil else { return }
         sharedBusy = item.id
         sharedDownloading = CatalogLibrary.savedImage(item.originalURL) == nil
-        loading = true
         problem = nil
         Task {
-            defer { sharedBusy = nil; sharedDownloading = false; loading = false }
+            defer { sharedBusy = nil; sharedDownloading = false }
             do {
                 let data = try await CatalogLibrary.cachedOriginalData(item.originalURL)
                 sharedDownloading = false

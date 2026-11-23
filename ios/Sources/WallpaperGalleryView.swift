@@ -319,7 +319,7 @@ private struct BingWallpaperDetail: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    GalleryImage(url: item.imageURL(), mode: .fit).aspectRatio(16 / 9, contentMode: .fit)
+                    RemoteWallpaperPreview(url: item.imageURL())
                     Text(item.name).font(.headline)
                     if let credit = item.copyright { Text(credit).font(.caption).foregroundStyle(.secondary) }
                     Button(downloading ? "正在下载…" : "用作壁纸") { download() }

@@ -118,8 +118,7 @@ private struct StockWallpaperDetail: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    GalleryImage(url: item.originalURL, mode: .fit)
-                        .aspectRatio(CGFloat(item.width) / CGFloat(max(item.height, 1)), contentMode: .fit)
+                    RemoteWallpaperPreview(url: item.originalURL)
                     Text(item.name).font(.headline)
                     Text("\(item.width) × \(item.height)").font(.caption).foregroundStyle(.secondary)
                     Button(downloading ? "正在下载…" : "用作壁纸") { download() }
