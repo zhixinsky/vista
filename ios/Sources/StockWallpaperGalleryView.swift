@@ -89,6 +89,8 @@ struct StockWallpaperGalleryView: View {
                 selection = nil
                 use(pick)
             }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 
