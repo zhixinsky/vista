@@ -54,7 +54,6 @@ struct CarPlaySelfCheckView: View {
     @EnvironmentObject private var model: WorkshopModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var rotating = false
     private let cyan = Color(red: 0.2, green: 0.9, blue: 0.95)
     private var supported: Bool { CarPlayCompatibility.supported(version: UIDevice.current.systemVersion, build: ServiceClient.systemBuild) }
     private var result: [String: Any] { model.selfCheckResult ?? [:] }
@@ -68,47 +67,8 @@ struct CarPlaySelfCheckView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 22) {
-                    VStack(alignment: .leading, spacing: 20) {
-                        HStack {
-                            Label("CARPLAY DIAGNOSTICS", systemImage: "waveform.path.ecg")
-                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                .tracking(1.5).foregroundStyle(cyan)
-                            Spacer()
-                            Circle().fill(model.selfChecking ? cyan : ready ? Color.green : Color.orange)
-                                .frame(width: 6, height: 6)
-                        }
-                        HStack(spacing: 16) {
-                            Image(systemName: model.selfChecking ? "waveform.path.ecg" : ready ? "checkmark.shield" : "car.side")
-                                .font(.system(size: 30, weight: .light))
-                                .foregroundStyle(cyan)
-                                .frame(width: 56, height: 56)
-                                .background(cyan.opacity(0.08), in: RoundedRectangle(cornerRadius: 14))
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(model.selfChecking ? "正在检查环境" : ready ? "车机壁纸已就绪" : checked ? "还有准备待完成" : "准备开始自检")
-                                    .font(.title2.weight(.semibold))
-                                Text(model.selfChecking ? "正在读取权限、容器与壁纸文件" : ready ? "访问与缓存检查通过，可以应用壁纸" : checked ? "查看下方结果，完成对应准备" : "检查手机与 CarPlay 壁纸环境")
-                                    .font(.caption).foregroundStyle(.white.opacity(0.6))
-                            }
-                        }
-                        GeometryReader { geometry in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(cyan.opacity(0.1))
-                                if model.selfChecking {
-                                    Capsule()
-                                        .fill(LinearGradient(colors: [cyan.opacity(0), cyan, cyan.opacity(0)], startPoint: .leading, endPoint: .trailing))
-                                        .frame(width: reduceMotion ? geometry.size.width : geometry.size.width * 0.4)
-                                        .offset(x: reduceMotion ? 0 : rotating ? geometry.size.width * 0.6 : 0)
-                                        .animation(reduceMotion ? nil : .easeInOut(duration: 1.4).repeatForever(autoreverses: true), value: rotating)
-                                } else if checked {
-                                    Capsule().fill(ready ? Color.green : Color.orange).opacity(0.7)
-                                }
-                            }
-                        }.frame(height: 3)
-                    }
-                    .padding(22)
-                    .background(LinearGradient(colors: [cyan.opacity(0.09), .white.opacity(0.025)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 22))
-                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(cyan.opacity(0.16), lineWidth: 1))
-                    .padding(.top, 8)
+                    CarPlayRadarHeader(scanning: model.selfChecking, ready: ready, checked: checked)
+                        .padding(.top, 12)
                     VStack(spacing: 0) {
                         row("设备信息", detail: "\(deviceName) · \(ServiceClient.machine)", good: true)
                         row("CarVista 版本", detail: model.appVersion, good: true)
@@ -151,7 +111,6 @@ struct CarPlaySelfCheckView: View {
                 }.padding().frame(maxWidth: .infinity).background(.ultraThinMaterial)
             }
             .task { start() }
-            .onChange(of: model.selfChecking) { _, running in rotating = running }
             .preferredColorScheme(.dark)
         }
     }
@@ -159,7 +118,7 @@ struct CarPlaySelfCheckView: View {
         let names = ["iPhone18,2": "iPhone 17 Pro Max", "iPhone18,1": "iPhone 17 Pro", "iPhone17,2": "iPhone 16 Pro Max", "iPhone17,1": "iPhone 16 Pro"]
         return names[ServiceClient.machine] ?? UIDevice.current.model
     }
-    private func start() { model.runSelfCheck(); rotating = model.selfChecking }
+    private func start() { model.runSelfCheck() }
     private func row(_ title: String, detail: String, good: Bool?) -> some View {
         HStack(spacing: 12) {
             Image(systemName: good == true ? "checkmark.circle.fill" : good == false ? "exclamationmark.circle.fill" : "circle.dotted")
@@ -170,5 +129,53 @@ struct CarPlaySelfCheckView: View {
             }
             Spacer(minLength: 0)
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct CarPlayRadarHeader: View {
+    let scanning: Bool
+    let ready: Bool
+    let checked: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private let cyan = Color(red: 0, green: 0.95, blue: 0.92)
+    var body: some View {
+        VStack(spacing: 14) {
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !scanning || reduceMotion)) { context in
+                let t = scanning && !reduceMotion ? context.date.timeIntervalSinceReferenceDate : 0
+                ZStack {
+                    Circle().fill(RadialGradient(colors: [cyan.opacity(0.12), .clear], center: .center, startRadius: 40, endRadius: 145))
+                    Circle().stroke(cyan.opacity(0.12), lineWidth: 1).padding(10)
+                    Circle().stroke(cyan.opacity(0.24), style: StrokeStyle(lineWidth: 2, dash: [1, 7])).padding(17)
+                    ForEach(0..<12, id: \.self) { index in
+                        Rectangle().fill(cyan.opacity(index.isMultiple(of: 3) ? 0.85 : 0.3))
+                            .frame(width: index.isMultiple(of: 3) ? 3 : 1, height: index.isMultiple(of: 3) ? 13 : 7)
+                            .offset(y: -112).rotationEffect(.degrees(Double(index) * 30))
+                    }
+                    Circle().trim(from: 0.04, to: 0.29).stroke(cyan, style: StrokeStyle(lineWidth: 3, lineCap: .square))
+                        .padding(30).rotationEffect(.degrees(t.truncatingRemainder(dividingBy: 20) * 18))
+                        .shadow(color: cyan.opacity(0.6), radius: 7)
+                    Circle().trim(from: 0.42, to: 0.82).stroke(cyan.opacity(0.5), style: StrokeStyle(lineWidth: 2, lineCap: .square))
+                        .padding(37).rotationEffect(.degrees(-t.truncatingRemainder(dividingBy: 12) * 30))
+                    if scanning {
+                        Circle().fill(AngularGradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: 0.73), .init(color: cyan.opacity(0.2), location: 0.98), .init(color: cyan.opacity(0.5), location: 1)], center: .center))
+                            .padding(43).rotationEffect(.degrees(t.truncatingRemainder(dividingBy: 4) * 90))
+                    }
+                    Circle().fill(Color(red: 0.025, green: 0.07, blue: 0.11)).padding(57)
+                    Circle().stroke(cyan.opacity(0.22), style: StrokeStyle(lineWidth: 1, dash: [3, 4])).padding(52)
+                    VStack(spacing: 9) {
+                        Image(systemName: scanning ? "waveform.path.ecg" : ready ? "checkmark.shield.fill" : "car.side.fill")
+                            .font(.system(size: 26, weight: .light)).foregroundStyle(ready ? Color.green : cyan)
+                        Text(scanning ? "正在检测" : ready ? "已准备好" : checked ? "需要处理" : "等待自检")
+                            .font(.system(size: 19, weight: .semibold)).foregroundStyle(.white)
+                        Text(scanning ? "SCANNING" : ready ? "SYSTEM READY" : "CARPLAY CHECK")
+                            .font(.system(size: 8, weight: .medium, design: .monospaced)).tracking(1.5).foregroundStyle(cyan.opacity(0.7))
+                    }
+                }.frame(width: 260, height: 260)
+            }
+            Text(scanning ? "正在检索权限、容器与壁纸文件" : ready ? "访问与壁纸缓存检查通过" : "查看下方环境检查结果")
+                .font(.caption).foregroundStyle(.white.opacity(0.6))
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
     }
 }
