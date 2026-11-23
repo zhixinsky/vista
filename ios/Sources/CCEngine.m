@@ -800,11 +800,94 @@ static BOOL CCCleanupLooseWallpaper(NSString *root, NSDictionary *source, NSStri
     if (backup.length) return @{@"source":@"backup", @"data":backup};
     return @{@"source":@"default"};
 }
+static NSString *CCDiagnosticDirectory(void) {
+    return [CCRepairDirectory().stringByDeletingLastPathComponent stringByAppendingPathComponent:@"WallpaperDiagnostics"];
+}
+static NSDictionary *CCDirectoryEvidence(NSString *directory) {
+    NSMutableDictionary *result = [@{@"path":directory} mutableCopy];
+    struct stat dir;
+    errno = 0;
+    if (!wq_stat(directory, &dir)) { result[@"statErrno"] = @(errno); return result; }
+    result[@"inode"] = @(dir.st_ino);
+    result[@"flags"] = @(dir.st_flags);
+    if (!S_ISDIR(dir.st_mode) || S_ISLNK(dir.st_mode)) { result[@"invalidDirectory"] = @YES; return result; }
+    NSString *error = nil;
+    NSArray *names = wq_list(directory, &error);
+    result[@"listingSucceeded"] = @(names != nil);
+    if (error) result[@"listingError"] = error;
+    NSMutableArray *items = NSMutableArray.new;
+    for (NSString *name in [names sortedArrayUsingSelector:@selector(compare:)]) {
+        if ([name containsString:@"/"] || [name isEqual:@"."] || [name isEqual:@".."]) continue;
+        NSString *path = [directory stringByAppendingPathComponent:name];
+        NSMutableDictionary *item = [@{@"name":name, @"wallpaper":@(CCWallpaperName(name))} mutableCopy];
+        struct stat st;
+        errno = 0;
+        if (!wq_stat(path, &st)) { item[@"statErrno"] = @(errno); [items addObject:item]; continue; }
+        item[@"inode"] = @(st.st_ino); item[@"device"] = @(st.st_dev);
+        item[@"bytes"] = @(st.st_size); item[@"mode"] = @(st.st_mode);
+        item[@"uid"] = @(st.st_uid); item[@"gid"] = @(st.st_gid);
+        item[@"flags"] = @(st.st_flags); item[@"immutable"] = @((st.st_flags & UF_IMMUTABLE) != 0);
+        item[@"modifiedSeconds"] = @(st.st_mtimespec.tv_sec); item[@"modifiedNanoseconds"] = @(st.st_mtimespec.tv_nsec);
+        item[@"changedSeconds"] = @(st.st_ctimespec.tv_sec); item[@"changedNanoseconds"] = @(st.st_ctimespec.tv_nsec);
+        item[@"createdSeconds"] = @(st.st_birthtimespec.tv_sec); item[@"createdNanoseconds"] = @(st.st_birthtimespec.tv_nsec);
+        if (CCWallpaperName(name) && S_ISREG(st.st_mode) && !S_ISLNK(st.st_mode)) {
+            NSDictionary *version = wq_file_version(path);
+            NSData *data = wq_read(path, 0, &error);
+            item[@"stableRead"] = @(version && [version isEqual:wq_file_version(path)]);
+            if (data) { item[@"sha256"] = CCDigest(data); item[@"decodable"] = @(CCDecode(data) != nil); }
+            else if (error) item[@"readError"] = error;
+        }
+        [items addObject:item];
+    }
+    result[@"files"] = items;
+    return result;
+}
+static NSDictionary *CCWallpaperEvidence(NSString *root) {
+    NSDictionary *loose = CCDirectoryEvidence([root stringByAppendingPathComponent:@"Library/Caches"]);
+    NSDictionary *mapped = CCDirectoryEvidence(CCWallpaperDirectory(root));
+    NSMutableDictionary *a = NSMutableDictionary.new, *b = NSMutableDictionary.new;
+    for (NSDictionary *item in loose[@"files"]) if ([item[@"wallpaper"] boolValue]) a[item[@"name"]] = item;
+    for (NSDictionary *item in mapped[@"files"]) if ([item[@"wallpaper"] boolValue]) b[item[@"name"]] = item;
+    NSMutableSet *names = [NSMutableSet setWithArray:a.allKeys]; [names addObjectsFromArray:b.allKeys];
+    NSMutableArray *comparison = NSMutableArray.new;
+    for (NSString *name in [[names allObjects] sortedArrayUsingSelector:@selector(compare:)]) {
+        NSDictionary *x = a[name], *y = b[name];
+        [comparison addObject:@{@"name":name, @"inCaches":@(x != nil), @"inMappedCache":@(y != nil),
+            @"sameSHA256":@(x[@"sha256"] && [x[@"sha256"] isEqual:y[@"sha256"]]),
+            @"sameInode":@(x && y && [x[@"inode"] isEqual:y[@"inode"]] && [x[@"device"] isEqual:y[@"device"]])}];
+    }
+    return @{@"capturedAtEpoch":@(NSDate.date.timeIntervalSince1970), @"root":root,
+        @"caches":loose, @"mappedCache":mapped, @"comparison":comparison};
+}
+static void CCSaveWallpaperEvidence(NSDictionary *record) {
+    NSString *directory = CCDiagnosticDirectory();
+    NSFileManager *fm = NSFileManager.defaultManager;
+    [fm createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
+    NSString *name = [NSString stringWithFormat:@"%.6f-%@.json", NSDate.date.timeIntervalSince1970, NSUUID.UUID.UUIDString];
+    NSData *data = [NSJSONSerialization dataWithJSONObject:record options:NSJSONWritingSortedKeys error:nil];
+    if (![data writeToFile:[directory stringByAppendingPathComponent:name] options:NSDataWritingAtomic error:nil]) wq_log(@"CarVista: diagnostic evidence could not be saved");
+    NSArray *names = [[fm contentsOfDirectoryAtPath:directory error:nil] sortedArrayUsingSelector:@selector(compare:)];
+    for (NSUInteger i = 0; names.count > 20 && i < names.count - 20; i++) [fm removeItemAtPath:[directory stringByAppendingPathComponent:names[i]] error:nil];
+}
++ (NSArray *)wallpaperDiagnosticHistory {
+    NSMutableArray *records = NSMutableArray.new;
+    NSString *directory = CCDiagnosticDirectory();
+    NSArray *names = [[NSFileManager.defaultManager contentsOfDirectoryAtPath:directory error:nil] sortedArrayUsingSelector:@selector(compare:)];
+    for (NSString *name in names) {
+        NSData *data = [NSData dataWithContentsOfFile:[directory stringByAppendingPathComponent:name]];
+        id record = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+        if ([record isKindOfClass:NSDictionary.class]) [records addObject:record];
+    }
+    return records;
+}
 + (NSDictionary *)maintainWallpaperCache:(NSDictionary<NSString *, NSData *> *)defaults {
     CCSetup();
     NSString *root = [NSUserDefaults.standardUserDefaults stringForKey:@"CCContainer"];
     if (!root.length || !wq_app_group().length || !CCRegisterRoot(root)) return @{@"ok":@NO, @"skipped":@YES};
     root = CCCanonical(root);
+    NSDictionary *beforeEvidence = CCWallpaperEvidence(root);
+    CCSaveWallpaperEvidence(@{@"stage":@"beforeAutomaticRecovery", @"snapshot":beforeEvidence});
+    @try {
     NSSet *allowed = [NSSet setWithArray:@[@"Black", @"Blue", @"Brown", @"DarkBlue", @"Green", @"Grey", @"Hero", @"Lilac", @"Purple", @"Red", @"Teal"]];
     NSMutableSet *groups = NSMutableSet.new;
     for (NSString *key in defaults) {
@@ -922,6 +1005,9 @@ static BOOL CCCleanupLooseWallpaper(NSString *root, NSDictionary *source, NSStri
         return @{@"ok":@(failed == 0), @"saved":@12, @"repaired":@(repaired), @"failed":@(failed), @"cleaned":@(cleaned)};
     } @finally {
         [NSFileManager.defaultManager removeItemAtPath:temp error:nil];
+    }
+    } @finally {
+        CCSaveWallpaperEvidence(@{@"stage":@"afterAutomaticRecovery", @"beforeCapturedAtEpoch":beforeEvidence[@"capturedAtEpoch"], @"snapshot":CCWallpaperEvidence(root)});
     }
 }
 + (NSDictionary *)repairCache:(NSDictionary *)target {

@@ -322,6 +322,7 @@ final class WorkshopModel: ObservableObject {
                 "system": UIDevice.current.systemVersion, "model": UIDevice.current.model,
                 "appGroup": group, "root": root, "message": message, "issues": issues,
                 "targets": targets.map(\.raw), "log": CCEngine.logs(),
+                "wallpaperFileHistory": CCEngine.wallpaperDiagnosticHistory(),
                 "appVersion": appVersion, "appGroupStatus": appGroupStatus,
                 "lastScan": lastScanSummary ?? "本次启动尚未查找",
                 "lastApply": lastApplySummary ?? "本次启动尚未应用"]
