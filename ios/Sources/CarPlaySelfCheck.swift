@@ -115,13 +115,13 @@ struct CarPlaySelfCheckView: View {
     private func start() { model.runSelfCheck() }
     private func row(_ title: String, detail: String, good: Bool?) -> some View {
         HStack(spacing: 12) {
-            Image(systemName: good == true ? "checkmark.circle.fill" : good == false ? "exclamationmark.circle.fill" : "circle.dotted")
-                .foregroundStyle(good == true ? Color.green : good == false ? Color.orange : cyan)
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(.subheadline.weight(.semibold))
                 Text(detail).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+            Image(systemName: good == true ? "checkmark.circle.fill" : good == false ? "exclamationmark.circle.fill" : "circle.dotted")
+                .foregroundStyle(good == true ? Color.green : good == false ? Color.orange : cyan)
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
     }
 }
