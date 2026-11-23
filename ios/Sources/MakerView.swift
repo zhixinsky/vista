@@ -117,7 +117,7 @@ struct ComposeWallpaperView: View {
                                 }.buttonStyle(.bordered).disabled(locked)
                                     .accessibilityIdentifier("maker.adjust")
                                 Button { prepareShare() } label: {
-                                    Text(shared ? "已共享" : "分享").font(.system(size: 15, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
+                                    Text(shared ? "已共享" : "共享").font(.system(size: 15, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
                                 }.buttonStyle(.bordered).disabled(locked || shared)
                                     .accessibilityIdentifier("wallpaper.share")
                                 if model.photoDownloadUnlocked {

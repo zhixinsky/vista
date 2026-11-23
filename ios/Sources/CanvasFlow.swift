@@ -262,7 +262,7 @@ struct CanvasHistoryView: View {
                             Text("介绍会显示在图库的精选壁纸里。")
                         }
                     }
-                    .navigationTitle("精选壁纸")
+                    .navigationTitle("共享壁纸到图库")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) { Button("取消") { shareTarget = nil } }
@@ -383,26 +383,11 @@ struct WallpaperDetailView: View {
                 }
             } else { ContentUnavailableView("记录已删除", systemImage: "photo") }
         }.navigationTitle("壁纸详情").navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showShareCode) {
-                VStack(spacing: 18) {
-                    Text("分享码已复制").font(.headline)
-                    Text(codeValue ?? "")
-                        .font(.system(size: 36, weight: .bold, design: .monospaced))
-                        .tracking(3)
-                        .textSelection(.enabled)
-                        .minimumScaleFactor(0.6)
-                        .lineLimit(1)
-                    Text("分享当前壁纸，有效期 30 天。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                    Button("完成") { showShareCode = false }
-                        .buttonStyle(.borderedProminent)
-                    Button("取消分享", role: .destructive) {
-                        showShareCode = false
-                        confirmRevokeCode = true
-                    }
-                }
-                .padding(24).frame(maxWidth: .infinity)
-                .presentationDetents([.medium])
+            .alert("分享码已复制", isPresented: $showShareCode) {
+                Button("取消分享", role: .destructive) { confirmRevokeCode = true }
+                Button("完成", role: .cancel) {}
+            } message: {
+                Text("\(codeValue ?? "")\n有效期 30 天，后续修改不会同步。")
             }
             .task {
                 let expiry = UserDefaults.standard.double(forKey: codeStorageKey + ".expiry")
@@ -433,7 +418,7 @@ struct WallpaperDetailView: View {
                         Button("确认取消共享", role: .destructive) { removeShare() }
                         Button("返回", role: .cancel) {}
                     }
-                    .navigationTitle(editingShare ? "编辑共享" : "精选壁纸")
+                    .navigationTitle(editingShare ? "编辑共享" : "共享壁纸到图库")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) { Button("取消") { shareDraft = false }.disabled(sharing) }
@@ -482,7 +467,7 @@ struct WallpaperDetailView: View {
                 UserDefaults.standard.set(created.expires_at, forKey: codeStorageKey + ".expiry")
                 UIPasteboard.general.string = created.code
                 showShareCode = true
-                codeNote = "已复制。有效期至 \(Date(timeIntervalSince1970: created.expires_at / 1000).formatted())；后续修改不会同步。"
+                codeNote = nil
             } catch { codeNote = "生成失败，请检查网络和后台服务。" }
         }
     }
