@@ -38,7 +38,7 @@ struct CarPlayStatusCard: View {
                 Button { showCheck = true } label: { Label("CarPlay 自检", systemImage: "waveform.path.ecg") }
                     .buttonStyle(.borderedProminent)
                 Spacer(minLength: 8)
-                WallpaperRefreshButton(title: "重启系统界面", systemImage: "arrow.clockwise")
+                WallpaperRefreshButton(title: "重启Carplay", systemImage: "arrow.clockwise")
                     .buttonStyle(.bordered)
             }.font(.subheadline)
             if let date = model.selfCheckDate {
@@ -54,7 +54,7 @@ struct CarPlaySelfCheckView: View {
     @EnvironmentObject private var model: WorkshopModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let cyan = Color(red: 0.2, green: 0.9, blue: 0.95)
+    private let cyan = CanvasTheme.accent
     private var supported: Bool { CarPlayCompatibility.supported(version: UIDevice.current.systemVersion, build: ServiceClient.systemBuild) }
     private var result: [String: Any] { model.selfCheckResult ?? [:] }
     private var evidence: [String: Any] { result["evidence"] as? [String: Any] ?? [:] }
@@ -79,39 +79,33 @@ struct CarPlaySelfCheckView: View {
                         row("壁纸缓存", detail: checked ? "可用 \(count) 张 · 缺失 \(model.targets.filter(\.missing).count) 张" : "等待检索", good: checked ? count == 12 : nil)
                         let copies = result["validRepairCopies"] as? Int ?? 0
                         row("本机恢复副本", detail: checked ? "已验证 \(copies) 张；缺项恢复时需要默认壁纸" : "等待检索", good: checked ? copies == 12 : nil)
-                    }.background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 20))
+                    }.background(Color.white, in: RoundedRectangle(cornerRadius: 20))
                     if checked && !ready {
                         VStack(alignment: .leading, spacing: 10) {
                             Label("下一步", systemImage: "arrow.right.circle").font(.headline)
                             Text(!supported ? "当前系统不在支持范围内。27.3 仅支持 beta 1（24C5037i）。" : model.group.isEmpty ? "当前安装没有提供 App Group，请使用支持 App Group 的方式重新签名安装。" : !readable || count == 0 ? "请连接 CarPlay，在车机设置中切换一次系统壁纸，然后返回重新检测。若仍失败，请到设置页生成诊断报告。" : "部分壁纸缺失或无法读取。可在车机切换其他内置壁纸后重新检测，或进入壁纸缓存页检查。")
-                                .font(.subheadline).foregroundStyle(.white.opacity(0.75))
+                                .font(.subheadline).foregroundStyle(.secondary)
                             if model.group.isEmpty == false && count == 0 {
                                 Button("继续定位容器") { model.scan(deep: true) }.disabled(model.busy)
                                 Text("首次完整定位可能需要数分钟，完成后请重新自检。 ").font(.caption)
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading).padding(18).background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
                     }
-                    DisclosureGroup("技术详情") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("App：\(model.appVersion)\nApp Group：\(model.group)\n容器：\(model.root)")
-                            if let data = try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]), let text = String(data: data, encoding: .utf8) { Text(text) }
-                        }.font(.caption.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    }.tint(cyan)
                     Text("自检检查手机内的访问与文件状态；车机是否显示新壁纸，需要连接后确认。")
-                        .font(.caption).foregroundStyle(.white.opacity(0.5))
+                        .font(.caption).foregroundStyle(.secondary)
                 }.padding(20).frame(maxWidth: 680).frame(maxWidth: .infinity)
             }
-            .background(LinearGradient(colors: [Color(red: 0.025, green: 0.065, blue: 0.12), .black], startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea())
-            .foregroundStyle(.white).tint(cyan)
+            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .foregroundStyle(.primary).tint(cyan)
             .navigationTitle("CarPlay 自检").navigationBarTitleDisplayMode(.inline)
             .toolbar { Button("关闭") { dismiss() } }
             .safeAreaInset(edge: .bottom) {
                 HStack {
-                    Button(model.selfChecking ? "正在检测…" : "重新检测") { start() }.buttonStyle(.borderedProminent).disabled(model.busy)
+                    Button(model.selfChecking ? "正在检测…" : "重新检测") { start() }.buttonStyle(.borderedProminent).disabled(model.busy || model.selfChecking)
                 }.padding().frame(maxWidth: .infinity).background(.ultraThinMaterial)
             }
             .task { start() }
-            .preferredColorScheme(.dark)
+            .preferredColorScheme(.light)
         }
     }
     private var deviceName: String {
@@ -125,7 +119,7 @@ struct CarPlaySelfCheckView: View {
                 .foregroundStyle(good == true ? Color.green : good == false ? Color.orange : cyan)
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(.subheadline.weight(.semibold))
-                Text(detail).font(.caption).foregroundStyle(.white.opacity(0.58))
+                Text(detail).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -137,7 +131,7 @@ private struct CarPlayRadarHeader: View {
     let ready: Bool
     let checked: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let cyan = Color(red: 0, green: 0.95, blue: 0.92)
+    private let cyan = CanvasTheme.accent
     var body: some View {
         VStack(spacing: 14) {
             TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !scanning || reduceMotion)) { context in
@@ -160,20 +154,23 @@ private struct CarPlayRadarHeader: View {
                         Circle().fill(AngularGradient(stops: [.init(color: .clear, location: 0), .init(color: .clear, location: 0.73), .init(color: cyan.opacity(0.2), location: 0.98), .init(color: cyan.opacity(0.5), location: 1)], center: .center))
                             .padding(43).rotationEffect(.degrees(t.truncatingRemainder(dividingBy: 4) * 90))
                     }
-                    Circle().fill(Color(red: 0.025, green: 0.07, blue: 0.11)).padding(57)
+                    Circle().fill(Color.white).padding(57)
                     Circle().stroke(cyan.opacity(0.22), style: StrokeStyle(lineWidth: 1, dash: [3, 4])).padding(52)
                     VStack(spacing: 9) {
                         Image(systemName: scanning ? "waveform.path.ecg" : ready ? "checkmark.shield.fill" : "car.side.fill")
                             .font(.system(size: 26, weight: .light)).foregroundStyle(ready ? Color.green : cyan)
                         Text(scanning ? "正在检测" : ready ? "已准备好" : checked ? "需要处理" : "等待自检")
-                            .font(.system(size: 19, weight: .semibold)).foregroundStyle(.white)
+                            .font(.system(size: 19, weight: .semibold)).foregroundStyle(.primary)
                         Text(scanning ? "SCANNING" : ready ? "SYSTEM READY" : "CARPLAY CHECK")
                             .font(.system(size: 8, weight: .medium, design: .monospaced)).tracking(1.5).foregroundStyle(cyan.opacity(0.7))
                     }
                 }.frame(width: 260, height: 260)
+                    .scaleEffect(0.8)
+                    .frame(width: 208, height: 208)
+                    .clipped()
             }
             Text(scanning ? "正在检索权限、容器与壁纸文件" : ready ? "访问与壁纸缓存检查通过" : "查看下方环境检查结果")
-                .font(.caption).foregroundStyle(.white.opacity(0.6))
+                .font(.caption).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)

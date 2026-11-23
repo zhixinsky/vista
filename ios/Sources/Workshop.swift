@@ -56,13 +56,17 @@ final class WorkshopModel: ObservableObject {
     func runSelfCheck() {
         guard !busy, !selfChecking else { return }
         selfChecking = true
+        let started = ProcessInfo.processInfo.systemUptime
         work({ CCEngine.selfCheck() as? [String: Any] ?? [:] }) { result in
-            self.selfCheckResult = result
-            self.selfCheckDate = Date()
-            self.selfChecking = false
-            self.targets = (result["files"] as? [[String: Any]] ?? []).map { WallpaperTarget(raw: $0) }
-            self.root = result["root"] as? String ?? ""
-            self.issues = result["issues"] as? [String] ?? []
+            let remaining = max(0, 1.5 - (ProcessInfo.processInfo.systemUptime - started))
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
+                self.selfCheckResult = result
+                self.selfCheckDate = Date()
+                self.selfChecking = false
+                self.targets = (result["files"] as? [[String: Any]] ?? []).map { WallpaperTarget(raw: $0) }
+                self.root = result["root"] as? String ?? ""
+                self.issues = result["issues"] as? [String] ?? []
+            }
         }
     }
 
