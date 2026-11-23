@@ -134,10 +134,17 @@ struct CanvasHistoryView: View {
     @State private var codeManifest: ServiceClient.WallpaperCodeManifest?
     @State private var codeLoading = false
     @State private var codePreview: UIImage?
+    @State private var codeStatusRevision = 0
+    private func hasActiveCode(_ id: UUID) -> Bool {
+        _ = codeStatusRevision
+        let key = "CarVistaWallpaperCode.\(id.uuidString)"
+        return UserDefaults.standard.string(forKey: key) != nil &&
+            UserDefaults.standard.double(forKey: key + ".expiry") > Date().timeIntervalSince1970 * 1000
+    }
     private var sharedIDs: Set<String> { Set(sharedHistory.split(separator: "|").map(String.init)) }
     private var visibleCollections: [WallpaperCollection] {
         model.collections.filter { collection in
-            let shared = collection.entries.contains { sharedIDs.contains($0.id.uuidString) }
+            let shared = collection.entries.contains { sharedIDs.contains($0.id.uuidString) } || hasActiveCode(collection.id)
             switch shareFilter {
             case .all: return true
             case .shared: return shared
@@ -166,7 +173,8 @@ struct CanvasHistoryView: View {
                 ContentUnavailableView(shareFilter == .shared ? "还没有已共享的壁纸" : "没有未共享的壁纸", systemImage: "photo.stack")
             }
             ForEach(visibleCollections) { collection in
-                let shared = collection.entries.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) }
+                let shared = collection.entries.contains { sharedIDs.contains($0.id.uuidString) }
+                let hasCode = hasActiveCode(collection.id)
                 ZStack(alignment: .trailing) {
                     Button { detailTarget = collection } label: {
                         HStack(spacing: 12) {
@@ -198,12 +206,23 @@ struct CanvasHistoryView: View {
                     .disabled(model.busy || sharingID != nil || shared)
                     .accessibilityLabel("\(shared ? "已共享" : "共享")\(collection.title)")
                 }
+                .overlay(alignment: .topTrailing) {
+                    HStack(spacing: 4) {
+                        if shared { Text("图库") }
+                        if hasCode { Text("分享码") }
+                    }
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(CanvasTheme.accent)
+                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .background((shared || hasCode) ? CanvasTheme.accent.opacity(0.12) : .clear, in: Capsule())
+                    .allowsHitTesting(false)
+                }
                 .swipeActions { Button("删除", role: .destructive) { remove = collection }.disabled(model.busy) }
             }
         }
             .navigationDestination(isPresented: Binding(
                 get: { detailTarget != nil },
-                set: { if !$0 { detailTarget = nil } }
+                set: { if !$0 { detailTarget = nil; codeStatusRevision += 1 } }
             )) {
                 if let collection = detailTarget {
                     WallpaperDetailView(collectionID: collection.id)
@@ -215,6 +234,8 @@ struct CanvasHistoryView: View {
                 case .failure(let error): importResult = "导入失败：\(error.localizedDescription)"
                 }
             }
+            .onAppear { codeStatusRevision += 1 }
+            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in codeStatusRevision += 1 }
             .navigationTitle("我的壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .toolbar {
                 Menu {
