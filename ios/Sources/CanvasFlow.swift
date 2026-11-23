@@ -392,30 +392,45 @@ struct WallpaperDetailView: View {
             } else { ContentUnavailableView("记录已删除", systemImage: "photo") }
         }.navigationTitle("壁纸详情").navigationBarTitleDisplayMode(.inline)
             .overlay {
-                if showShareCode {
+                if showShareCode || confirmRevokeCode {
                     ZStack {
                         Color.black.opacity(0.42).ignoresSafeArea()
-                        VStack(spacing: 18) {
-                            Text("分享码已复制").font(.headline)
-                            Text(codeValue ?? "")
-                                .font(.system(size: 36, weight: .bold, design: .monospaced))
-                                .tracking(3)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: .infinity)
-                                .lineLimit(1).minimumScaleFactor(0.55)
-                                .textSelection(.enabled)
-                            Text("有效期 30 天，后续修改不会同步。")
-                                .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                            Button("完成") { showShareCode = false }
-                                .buttonStyle(.borderedProminent).frame(maxWidth: .infinity)
-                            Button("取消分享", role: .destructive) {
-                                showShareCode = false
-                                confirmRevokeCode = true
-                            }
+                        VStack(spacing: 0) {
+                            VStack(spacing: 10) {
+                                Text(confirmRevokeCode ? "取消分享码？" : "分享码已复制")
+                                    .font(.headline).multilineTextAlignment(.center)
+                                if confirmRevokeCode {
+                                    Text("取消后，其他人将无法再通过此分享码下载。")
+                                        .font(.subheadline).multilineTextAlignment(.center)
+                                } else {
+                                    Text(codeValue ?? "")
+                                        .font(.system(size: 34, weight: .bold, design: .monospaced))
+                                        .tracking(3).frame(maxWidth: .infinity)
+                                        .lineLimit(1).minimumScaleFactor(0.55).textSelection(.enabled)
+                                    Text("有效期 30 天，后续修改不会同步。")
+                                        .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                                }
+                            }.padding(20).frame(maxWidth: .infinity)
+                            Divider()
+                            HStack(spacing: 0) {
+                                if confirmRevokeCode {
+                                    Button("返回") { confirmRevokeCode = false; showShareCode = true }
+                                        .frame(maxWidth: .infinity, minHeight: 48)
+                                    Divider().frame(height: 48)
+                                    Button("确认取消", role: .destructive) { confirmRevokeCode = false; revokeCode() }
+                                        .frame(maxWidth: .infinity, minHeight: 48)
+                                } else {
+                                    Button("取消分享", role: .destructive) { showShareCode = false; confirmRevokeCode = true }
+                                        .frame(maxWidth: .infinity, minHeight: 48)
+                                    Divider().frame(height: 48)
+                                    Button("完成") { showShareCode = false }
+                                        .fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: 48)
+                                }
+                            }.buttonStyle(.plain)
                         }
-                        .padding(24)
-                        .frame(maxWidth: 330)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
+                        .frame(maxWidth: 300)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
                         .padding(.horizontal, 24)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -471,10 +486,6 @@ struct WallpaperDetailView: View {
                     .interactiveDismissDisabled(sharing)
                 }
                 .presentationDetents([.medium])
-            }
-            .confirmationDialog("取消后，其他人将无法再通过此分享码下载。", isPresented: $confirmRevokeCode, titleVisibility: .visible) {
-                Button("确认取消分享码", role: .destructive) { revokeCode() }
-                Button("返回", role: .cancel) {}
             }
             .alert("重命名", isPresented: $renaming) {
                 TextField("壁纸名称", text: $name)
