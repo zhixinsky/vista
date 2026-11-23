@@ -49,6 +49,23 @@ struct WallpaperTarget: Identifiable {
 @MainActor
 final class WorkshopModel: ObservableObject {
     @Published var targets: [WallpaperTarget] = []
+    @Published var selfCheckResult: [String: Any]?
+    @Published var selfCheckDate: Date?
+    @Published var selfChecking = false
+
+    func runSelfCheck() {
+        guard !busy, !selfChecking else { return }
+        selfChecking = true
+        work({ CCEngine.selfCheck() as? [String: Any] ?? [:] }) { result in
+            self.selfCheckResult = result
+            self.selfCheckDate = Date()
+            self.selfChecking = false
+            self.targets = (result["files"] as? [[String: Any]] ?? []).map { WallpaperTarget(raw: $0) }
+            self.root = result["root"] as? String ?? ""
+            self.issues = result["issues"] as? [String] ?? []
+        }
+    }
+
     @Published var lastRepairSummary = ""
     @Published var history: [SavedWallpaper] = []
     @Published var backups: [[String: Any]] = []
@@ -418,6 +435,7 @@ final class WorkshopModel: ObservableObject {
                 "appGroup": group, "root": root, "message": message, "issues": issues,
                 "targets": targets.map(\.raw), "log": CCEngine.logs(),
                 "wallpaperFileHistory": CCEngine.wallpaperDiagnosticHistory(),
+                "selfCheck": selfCheckResult ?? [:],
                 "appVersion": appVersion, "appGroupStatus": appGroupStatus,
                 "lastScan": lastScanSummary ?? "本次启动尚未查找",
                 "lastApply": lastApplySummary ?? "本次启动尚未应用"]

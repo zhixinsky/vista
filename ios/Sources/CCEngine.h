@@ -18,6 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSDictionary *)cacheRecoveryPlan:(NSDictionary *)records files:(NSArray *)files root:(NSString *)root NS_SWIFT_NAME(cacheRecoveryPlan(records:files:root:));
 + (NSDictionary *)recoverySource:(nullable NSData *)backup loose:(nullable NSData *)loose NS_SWIFT_NAME(recoverySource(backup:loose:));
 + (NSArray *)wallpaperDiagnosticHistory;
++ (NSDictionary *)selfCheck;
 + (NSDictionary *)maintainWallpaperCache:(NSDictionary<NSString *, NSData *> *)defaults;
 + (NSDictionary *)repairCache:(NSDictionary *)target;
 + (NSDictionary *)unlockWallpapers;

@@ -870,6 +870,20 @@ static void CCSaveWallpaperEvidence(NSDictionary *record) {
     NSArray *names = [[fm contentsOfDirectoryAtPath:directory error:nil] sortedArrayUsingSelector:@selector(compare:)];
     for (NSUInteger i = 0; names.count > 20 && i < names.count - 20; i++) [fm removeItemAtPath:[directory stringByAppendingPathComponent:names[i]] error:nil];
 }
++ (NSDictionary *)selfCheck {
+    NSDictionary *scan = [self discover:NO];
+    NSString *root = scan[@"root"];
+    NSMutableDictionary *result = [scan mutableCopy];
+    if (root.length) result[@"evidence"] = CCWallpaperEvidence(root);
+    NSUInteger copies = 0;
+    NSDictionary *records = CCRepairRecords();
+    for (NSString *path in records) {
+        NSDictionary *record = records[path];
+        if ([record isKindOfClass:NSDictionary.class] && [record[@"root"] isEqual:root] && CCRepairData(record)) copies++;
+    }
+    result[@"validRepairCopies"] = @(copies);
+    return result;
+}
 + (NSArray *)wallpaperDiagnosticHistory {
     NSMutableArray *records = NSMutableArray.new;
     NSString *directory = CCDiagnosticDirectory();
