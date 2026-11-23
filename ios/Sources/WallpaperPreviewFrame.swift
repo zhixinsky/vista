@@ -74,6 +74,7 @@ struct ZoomableWallpaperPreview: View {
                                 .padding(.horizontal, 8).frame(minHeight: 32)
                                 .background(.black.opacity(0.18), in: Capsule())
                         }.buttonStyle(.plain).accessibilityLabel("复位预览缩放和位置")
+                        Spacer(minLength: 8)
                         Label("捏合缩放", systemImage: "arrow.up.left.and.arrow.down.right")
                             .padding(.horizontal, 8).frame(minHeight: 32)
                             .background(.black.opacity(0.18), in: Capsule())
