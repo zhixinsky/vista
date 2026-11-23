@@ -371,8 +371,7 @@ struct WallpaperDetailView: View {
                             Button { generateCode(collection) } label: { Label(codeBusy ? "正在生成分享码…" : "生成分享码", systemImage: "link") }.disabled(codeBusy || model.busy)
                         }
                         if let codeValue {
-                            Button { UIPasteboard.general.string = codeValue; showShareCode = true } label: { Label("查看并复制分享码", systemImage: "doc.on.doc") }
-                            Button("取消此分享码", role: .destructive) { confirmRevokeCode = true }.disabled(codeBusy)
+                            Button { UIPasteboard.general.string = codeValue; showShareCode = true } label: { Label("查看分享码", systemImage: "doc.on.doc") }.disabled(codeBusy)
                         }
                         if let codeNote { Text(codeNote).font(.footnote).foregroundStyle(.secondary) }
                         if let dashboard = collection.entries.first(where: { $0.mode == "车机" }) {
@@ -384,10 +383,26 @@ struct WallpaperDetailView: View {
                 }
             } else { ContentUnavailableView("记录已删除", systemImage: "photo") }
         }.navigationTitle("壁纸详情").navigationBarTitleDisplayMode(.inline)
-            .alert("分享码已复制", isPresented: $showShareCode) {
-                Button("完成", role: .cancel) {}
-            } message: {
-                Text("\(codeValue ?? "")\n分享当前壁纸，有效期 30 天。")
+            .sheet(isPresented: $showShareCode) {
+                VStack(spacing: 18) {
+                    Text("分享码已复制").font(.headline)
+                    Text(codeValue ?? "")
+                        .font(.system(size: 36, weight: .bold, design: .monospaced))
+                        .tracking(3)
+                        .textSelection(.enabled)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                    Text("分享当前壁纸，有效期 30 天。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    Button("完成") { showShareCode = false }
+                        .buttonStyle(.borderedProminent)
+                    Button("取消分享", role: .destructive) {
+                        showShareCode = false
+                        confirmRevokeCode = true
+                    }
+                }
+                .padding(24).frame(maxWidth: .infinity)
+                .presentationDetents([.medium])
             }
             .task {
                 let expiry = UserDefaults.standard.double(forKey: codeStorageKey + ".expiry")
