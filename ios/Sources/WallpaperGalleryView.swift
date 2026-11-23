@@ -373,7 +373,16 @@ struct GalleryImage: View {
         }
         Group {
             if backed {
-                Rectangle().fill(.quaternary).overlay { content }.clipped()
+                Rectangle().fill(.quaternary)
+                    .overlay {
+                        GeometryReader { geometry in
+                            content.frame(width: geometry.size.width, height: geometry.size.height)
+                                .clipped()
+                        }
+                        .allowsHitTesting(false)
+                    }
+                    .clipped()
+                    .contentShape(Rectangle())
             } else {
                 content.frame(maxWidth: .infinity, minHeight: image == nil ? 92 : 0)
             }

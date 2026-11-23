@@ -67,7 +67,6 @@ struct ComposeWallpaperView: View {
     private var renderKey: String { "\(photo?.id.uuidString ?? "empty")-\(String(describing: photo?.adjustment))-\(outputLabel)" }
 
     var body: some View {
-        ScrollViewReader { scroll in
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 14) {
@@ -78,12 +77,22 @@ struct ComposeWallpaperView: View {
                     }
                 }
                 VStack(spacing: 14) {
-                    Group {
-                        if let preview { Image(uiImage: preview).resizable().scaledToFit() }
-                        else if photos.isEmpty { Label("选择一张壁纸", systemImage: "photo.on.rectangle.angled").font(.headline).padding(.vertical, 36) }
-                        else { ProgressView("正在生成预览…").frame(height: 160) }
-                    }.frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 18))
-                        .overlay(alignment: .topTrailing) { if previewing && preview != nil { ProgressView().padding(12).background(.regularMaterial, in: Capsule()) } }
+                    WallpaperPreviewFrame(image: preview)
+                        .overlay {
+                            if photos.isEmpty {
+                                Label("选择一张壁纸", systemImage: "photo.on.rectangle.angled")
+                                    .font(.headline).frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .background(cardColor)
+                            }
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            if previewing && preview != nil { ProgressView().padding(12).background(.regularMaterial, in: Capsule()) }
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .allowsHitTesting(false)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("当前壁纸预览")
+                        .accessibilityIdentifier("maker.preview")
                     if photos.count > 1 {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 10) {
@@ -164,7 +173,7 @@ struct ComposeWallpaperView: View {
                     if let problem { Text(problem).font(.subheadline).foregroundStyle(.red) }
                 }.padding(16).frame(maxWidth: .infinity)
                     .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
-                    .id("currentWallpaper")
+                    .allowsHitTesting(sharedBusy == nil)
 
                 VStack(alignment: .leading, spacing: 12) {
                     Button { openShared?() } label: {
@@ -197,15 +206,18 @@ struct ComposeWallpaperView: View {
                                                 }
                                             }
                                             .contentShape(Rectangle())
-                                    }.buttonStyle(.plain)
+                                    }.frame(width: 160, height: 90)
+                                        .contentShape(Rectangle())
+                                        .buttonStyle(.plain)
                                         .disabled(locked)
+                                        .allowsHitTesting(sharedBusy == nil)
                                         .accessibilityLabel("导入\(item.title)")
                                     Text(item.title).font(.caption).lineLimit(1)
                                     HStack {
                                         Label("\(item.likes)", systemImage: "heart").font(.caption2)
                                         Button { sharedComments = item } label: {
                                             Label("\(item.comments ?? 0)", systemImage: "bubble.left").font(.caption2)
-                                        }.buttonStyle(.plain).accessibilityLabel("查看评论")
+                                        }.buttonStyle(.plain).allowsHitTesting(sharedBusy == nil).accessibilityLabel("查看评论")
                                         Spacer(minLength: 0)
                                     }
                                 }.frame(width: 160)
@@ -259,11 +271,6 @@ struct ComposeWallpaperView: View {
                 CarPlayStatusCard()
             }.padding(20).frame(maxWidth: 680).frame(maxWidth: .infinity)
         }.background(Color(uiColor: .systemGroupedBackground)).tint(CanvasTheme.accent)
-            .allowsHitTesting(sharedBusy == nil)
-            .onChange(of: photo?.id) { _, id in
-                if id != nil { withAnimation { scroll.scrollTo("currentWallpaper", anchor: .top) } }
-            }
-        }
             .navigationTitle("壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {

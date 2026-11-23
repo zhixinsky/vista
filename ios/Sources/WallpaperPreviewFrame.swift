@@ -19,6 +19,8 @@ struct WallpaperPreviewFrame: View {
                 }
             }
             .clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+            .contentShape(Rectangle())
+            .allowsHitTesting(false)
     }
 }
 
