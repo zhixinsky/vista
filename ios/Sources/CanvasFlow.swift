@@ -187,24 +187,11 @@ struct CanvasHistoryView: View {
                                     Text(note).font(.caption).foregroundStyle(.secondary)
                                 }
                             }
-                            Spacer(minLength: 76)
+                            Spacer(minLength: 16)
                         }.padding(.vertical, 5)
                     }
                     .buttonStyle(.plain)
-                    Button(sharingID == collection.id ? "正在共享…" : shared ? "已共享" : "共享") {
-                        shareText = ""
-                        shareTitle = collection.title
-                        shareAuthor = ""
-                        shareTarget = collection
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(CanvasTheme.accent.opacity(0.14), in: Capsule())
-                    .foregroundStyle(CanvasTheme.accent)
-                    .disabled(model.busy || sharingID != nil || shared)
-                    .accessibilityLabel("\(shared ? "已共享" : "共享")\(collection.title)")
+
                 }
                 .overlay(alignment: .topTrailing) {
                     HStack(spacing: 4) {

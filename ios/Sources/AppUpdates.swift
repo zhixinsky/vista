@@ -85,10 +85,16 @@ struct AppUpdateView: View {
     @ObservedObject private var updates = AppUpdates.shared
     @Environment(\.openURL) private var openURL
     var prompted = false
+    private var currentVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
+        let channel = (Bundle.main.object(forInfoDictionaryKey: "CarVistaReleaseChannel") as? String)?.lowercased()
+        let label = channel == "beta" ? "测试版" : channel == "stable" ? "稳定版" : "渠道未知"
+        return "\(version)（\(label)）"
+    }
     var body: some View {
         List {
             Section {
-                LabeledContent("当前版本", value: ServiceClient.appVersion)
+                LabeledContent("当前版本", value: currentVersion)
                 LabeledContent("更新服务", value: "CarVista V2")
                 Toggle("接收测试版更新", isOn: $updates.includeBeta)
                     .disabled(updates.checking || updates.required)
