@@ -97,15 +97,15 @@ struct WallpaperColorView: View {
     }
 
     private var previewPanel: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: embedded ? 0 : 14) {
             Group {
                 if let image = showOriginal ? original : (corrected ?? original) {
                     GeometryReader { geometry in
-                        let ratio = image.size.width / max(image.size.height, 1)
-                        let width = min(geometry.size.width, geometry.size.height * ratio)
-                        ZoomableWallpaperPreview(image: image, resetID: photo.id, aspectRatio: ratio)
-                            .frame(width: width, height: width / ratio)
-                            .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                        let viewportRatio = geometry.size.width / max(geometry.size.height, 1)
+                        ZoomableWallpaperPreview(image: image, resetID: photo.id,
+                            aspectRatio: viewportRatio, cornerRadius: 0, fitInside: true)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipped()
                     }
                     .frame(maxWidth: .infinity, maxHeight: embedded ? .infinity : 210)
                     .frame(minHeight: embedded ? 120 : 210)
@@ -120,10 +120,12 @@ struct WallpaperColorView: View {
             .pickerStyle(.segmented)
             .frame(maxWidth: 280)
             .disabled(original == nil)
+            .padding(.horizontal, embedded ? 12 : 0)
+            .padding(.vertical, embedded ? 8 : 0)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, maxHeight: embedded ? .infinity : nil)
+        .padding(.horizontal, embedded ? 0 : 20)
+        .padding(.vertical, embedded ? 0 : 16)
         .background(Color(uiColor: .systemGray6))
     }
 

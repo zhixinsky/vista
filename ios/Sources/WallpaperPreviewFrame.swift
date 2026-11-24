@@ -62,11 +62,13 @@ struct ZoomableWallpaperPreview: View {
     let image: UIImage?
     let resetID: UUID?
     var aspectRatio: CGFloat = 16.0 / 9.0
+    var cornerRadius: CGFloat = 18
+    var fitInside = false
     @State private var resetViewID = 0
     var body: some View {
         Color(uiColor: .tertiarySystemFill)
             .aspectRatio(aspectRatio, contentMode: .fit)
-            .overlay { NativeWallpaperZoom(image: image, resetID: resetID, resetViewID: resetViewID) }
+            .overlay { NativeWallpaperZoom(image: image, resetID: resetID, resetViewID: resetViewID, fitInside: fitInside) }
             .overlay(alignment: .bottomTrailing) {
                 if image != nil {
                     HStack(spacing: 6) {
@@ -85,7 +87,7 @@ struct ZoomableWallpaperPreview: View {
                     .padding(10)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
     }
 }
 
@@ -93,8 +95,9 @@ private struct NativeWallpaperZoom: UIViewRepresentable {
     let image: UIImage?
     let resetID: UUID?
     let resetViewID: Int
+    let fitInside: Bool
     func makeUIView(context: Context) -> WallpaperZoomView { WallpaperZoomView() }
-    func updateUIView(_ view: WallpaperZoomView, context: Context) { view.configure(image: image, id: resetID, resetViewID: resetViewID) }
+    func updateUIView(_ view: WallpaperZoomView, context: Context) { view.configure(image: image, id: resetID, resetViewID: resetViewID, fitInside: fitInside) }
     static func dismantleUIView(_ view: WallpaperZoomView, coordinator: ()) { view.restoreScrolling() }
 }
 
@@ -104,6 +107,7 @@ private final class WallpaperZoomView: UIView, UIGestureRecognizerDelegate {
     private let blur = UIVisualEffectView(effect: UIBlurEffect(style: .regular))
     private var identity: UUID?
     private var lastResetViewID = 0
+    private var fitInside = false
     private var scale: CGFloat = 1
     private var initialScale: CGFloat = 1
     private var offset = CGPoint.zero
@@ -152,7 +156,10 @@ private final class WallpaperZoomView: UIView, UIGestureRecognizerDelegate {
         parentScroll = nil
         originalMaximumTouches = nil
     }
-    func configure(image: UIImage?, id: UUID?, resetViewID: Int) {
+    func configure(image: UIImage?, id: UUID?, resetViewID: Int, fitInside: Bool) {
+        if self.fitInside != fitInside { self.fitInside = fitInside; setNeedsLayout() }
+        backdrop.isHidden = fitInside
+        blur.isHidden = fitInside
         if identity != id || lastResetViewID != resetViewID {
             scale = 1
             offset = .zero
@@ -167,7 +174,8 @@ private final class WallpaperZoomView: UIView, UIGestureRecognizerDelegate {
         backdrop.frame = bounds
         blur.frame = bounds
         guard let image = picture.image, image.size.width > 0 else { return }
-        let width = bounds.width * scale
+        let baseWidth = fitInside ? min(bounds.width, bounds.height * image.size.width / max(image.size.height, 1)) : bounds.width
+        let width = baseWidth * scale
         let height = width * image.size.height / image.size.width
         let maxX = max(0, (width - bounds.width) / 2)
         let maxY = max(0, (height - bounds.height) / 2)
