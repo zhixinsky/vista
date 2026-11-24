@@ -10,6 +10,7 @@ struct SharedWallpaper: Identifiable, Equatable {
     let height: Int
     let likes: Int
     let liked: Bool
+    var pinned: Bool? = nil
     var comments: Int? = nil
     var createdAt: String? = nil
     let previewURL: URL
@@ -30,6 +31,7 @@ struct SharedWallpaper: Identifiable, Equatable {
         height = item.height
         likes = item.likes
         liked = item.liked
+        pinned = item.pinned
         comments = item.comments
         createdAt = item.createdAt
         previewURL = ServiceClient.publicURL(item.previewURL)
@@ -48,6 +50,7 @@ struct ShareItem: Decodable {
     let height: Int
     let likes: Int
     let liked: Bool
+    var pinned: Bool? = nil
     var comments: Int? = nil
     var createdAt: String? = nil
     let previewURL: URL
@@ -56,7 +59,7 @@ struct ShareItem: Decodable {
     enum CodingKeys: String, CodingKey {
         case id, title, width, height, likes, liked
         case intro = "description"
-        case author, comments
+        case author, comments, pinned
         case createdAt = "created_at"
         case previewURL = "preview_url"
         case originalURL = "original_url"
@@ -99,6 +102,14 @@ struct SharedWallpaperGalleryView: View {
                             .clipped()
                             .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
                             .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(alignment: .topLeading) {
+                                if item.pinned == true {
+                                    Text("置顶").font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 5)
+                                        .background(.black.opacity(0.58), in: Capsule()).padding(10)
+                                        .allowsHitTesting(false)
+                                }
+                            }
                             .overlay(alignment: .topTrailing) {
                                 Text("\(item.width) × \(item.height)")
                                     .font(.system(size: 11, weight: .medium, design: .rounded))

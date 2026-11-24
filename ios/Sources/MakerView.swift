@@ -193,6 +193,14 @@ struct ComposeWallpaperView: View {
                                         GalleryImage(url: item.previewURL, mode: .fill)
                                             .frame(width: 160, height: 90)
                                             .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .overlay(alignment: .topLeading) {
+                                if item.pinned == true {
+                                    Text("置顶").font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 5)
+                                        .background(.black.opacity(0.58), in: Capsule()).padding(10)
+                                        .allowsHitTesting(false)
+                                }
+                            }
                                             .overlay {
                                                 if sharedBusy == item.id && sharedDownloading {
                                                     ZStack {
