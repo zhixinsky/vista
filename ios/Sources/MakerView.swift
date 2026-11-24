@@ -3,11 +3,6 @@ import SwiftUI
 import PhotosUI
 import Photos
 
-private struct CatalogApply: Identifiable {
-    let id = UUID()
-    let entries: [SavedWallpaper]
-}
-
 struct ComposeWallpaperView: View {
     @EnvironmentObject var model: WorkshopModel
     @Binding var galleryImport: GalleryImport?
@@ -28,10 +23,10 @@ struct ComposeWallpaperView: View {
     @AppStorage("CarVistaSharedHistory") private var sharedHistory = ""
     @State private var cropOrientation = CropOrientationSession()
     @State private var applying = false
-    @State private var catalogApply: CatalogApply?
     @State private var sharedTop = Array(SharedWallpaper.saved.prefix(10))
     @State private var sharedNote = ""
     @State private var sharedBusy: String?
+    @State private var sharedComments: SharedWallpaper?
     @State private var seriesEntries = GalleryCategory.savedSeriesHomeEntries(includeHidden: false)
     @State private var seriesNote = ""
     @State private var seriesVisible = !GalleryCategory.savedSeriesHomeEntries(includeHidden: false).isEmpty
@@ -177,7 +172,7 @@ struct ComposeWallpaperView: View {
                             Text("精选壁纸").font(.headline)
                             Spacer()
                             Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                        }
+                        }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(openShared == nil).accessibilityIdentifier("wallpaper.shared")
                     if sharedBusy != nil {
                         HStack(spacing: 8) {
@@ -190,25 +185,35 @@ struct ComposeWallpaperView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
                             ForEach(sharedTop) { item in
-                                Button { applyShared(item) } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Button { importShared(item) } label: {
                                         GalleryImage(url: item.previewURL, mode: .fill)
-                                        .frame(width: 160, height: 44)
-                                        .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10))
-                                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                                        .overlay {
-                                            if sharedBusy == item.id { WallpaperDownloadCover(compact: true) }
-                                        }
-                                        .accessibilityHidden(true)
-                                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                            Text(item.title).font(.caption).lineLimit(1)
-                                            Spacer(minLength: 4)
-                                            Label("\(item.likes)", systemImage: "heart")
-                                                .font(.caption2).foregroundStyle(.secondary)
-                                                .lineLimit(1)
-                                        }
-                                    }.frame(width: 160, alignment: .leading).contentShape(Rectangle())
-                                }.buttonStyle(.plain).disabled(locked || sharedBusy != nil)
+                                            .frame(width: 160, height: 90)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                                            .overlay(alignment: .topLeading) {
+                                                if item.pinned == true {
+                                                    Text("置顶").font(.system(size: 11, weight: .medium))
+                                                        .foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 5)
+                                                        .background(.black.opacity(0.58), in: Capsule()).padding(8)
+                                                        .allowsHitTesting(false)
+                                                }
+                                            }
+                                            .overlay {
+                                                if sharedBusy == item.id { WallpaperDownloadCover() }
+                                            }
+                                    }.buttonStyle(.plain)
+                                        .disabled(locked || sharedBusy != nil)
+                                        .accessibilityLabel("导入\(item.title)")
+                                    Text(item.title).font(.caption).lineLimit(1)
+                                    HStack {
+                                        Label("\(item.likes)", systemImage: "heart").font(.caption2)
+                                        Button { sharedComments = item } label: {
+                                            Label("\(item.comments ?? 0)", systemImage: "bubble.left").font(.caption2)
+                                        }.buttonStyle(.plain).accessibilityLabel("查看评论")
+                                        Spacer(minLength: 0)
+                                    }
+                                }.frame(width: 160)
+
                             }
                         }
                     }
@@ -221,7 +226,7 @@ struct ComposeWallpaperView: View {
                                 Text("系列壁纸").font(.headline)
                                 Spacer()
                                 Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                            }
+                            }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                         }.buttonStyle(.plain).disabled(openSeries == nil).accessibilityIdentifier("wallpaper.series")
                         if !seriesNote.isEmpty {
                             Text(seriesNote).font(.caption).foregroundStyle(.secondary)
@@ -327,13 +332,10 @@ struct ComposeWallpaperView: View {
                 if let photo, let entries = generated[photo.id] { NavigationStack { ApplyWallpaperView(entries: entries) } }
             }
             .sheet(item: $shareCollection) { collection in
-                NavigationStack {
-                    WallpaperDetailView(collectionID: collection.id, startSharing: true)
-                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { shareCollection = nil } } }
-                }
+                ShareWallpaperForm(collection: collection)
             }
-            .sheet(item: $catalogApply) { apply in
-                NavigationStack { ApplyWallpaperView(entries: apply.entries) }
+            .sheet(item: $sharedComments, onDismiss: { Task { await loadShared() } }) { item in
+                ShareCommentsView(item: item)
             }
     }
 
@@ -382,7 +384,7 @@ struct ComposeWallpaperView: View {
         }
         do {
             var incoming = try await Task.detached { try MakerDraft.importPhoto(data: request.data) }.value
-            incoming.sourceName = request.source == "buick" ? "别克大联屏" : request.source == "stock" ? "默认壁纸" : "在线图库"
+            incoming.sourceName = request.source == "buick" ? "别克大联屏" : request.source == "stock" ? "默认壁纸" : request.source == "share" ? "精选壁纸" : "在线图库"
             incoming.remoteSource = request.source
             incoming.remoteAssetID = request.assetID
             guard !Task.isCancelled else {
@@ -403,10 +405,11 @@ struct ComposeWallpaperView: View {
             sharedTop = []
             return
         }
-        guard let remote = await ServiceClient.shared.fetchShares() else {
-            sharedNote = sharedTop.isEmpty ? "无法加载精选壁纸。" : ""
+        guard let remote = await ServiceClient.shared.fetchShares(sort: .likes) else {
+            if !Task.isCancelled { sharedNote = "加载失败，请稍后重试。" }
             return
         }
+        guard !Task.isCancelled else { return }
         sharedTop = Array(remote.prefix(10))
         sharedNote = remote.isEmpty ? "还没有人精选壁纸。" : ""
     }
@@ -436,28 +439,19 @@ struct ComposeWallpaperView: View {
         }
     }
 
-    private func applyShared(_ item: SharedWallpaper) {
+    private func importShared(_ item: SharedWallpaper) {
         guard !locked, sharedBusy == nil else { return }
-        loading = true
         sharedBusy = item.id
         problem = nil
         Task {
-            defer {
-                loading = false
-                sharedBusy = nil
-            }
+            defer { sharedBusy = nil }
             do {
                 let (data, response) = try await URLSession.shared.data(from: item.originalURL)
                 guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else {
                     problem = "无法下载这张壁纸。"
                     return
                 }
-                let ready = await model.prepareOriginal(data, source: "share", assetID: item.id)
-                guard !ready.isEmpty else {
-                    problem = model.message
-                    return
-                }
-                catalogApply = CatalogApply(entries: ready)
+                galleryImport = GalleryImport(data: data, source: "share", assetID: item.id)
             } catch {
                 problem = "无法下载这张壁纸。"
             }

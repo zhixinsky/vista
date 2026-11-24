@@ -8,6 +8,7 @@ import Security
 @main
 struct CarVistaApp: App {
     @StateObject private var model = WorkshopModel()
+    @StateObject private var updates = AppUpdates.shared
     @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
         WindowGroup {
@@ -15,9 +16,17 @@ struct CarVistaApp: App {
                 .task {
                     model.maintainCacheSilently()
                     await ServiceClient.shared.startup()
+                    await updates.check(automatically: true)
                 }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { model.maintainCacheSilently() }
+                    if phase == .active {
+                        model.maintainCacheSilently()
+                        Task { await updates.check(automatically: true) }
+                    }
+                }
+                .sheet(isPresented: $updates.showPrompt) {
+                    NavigationStack { AppUpdateView(prompted: true) }
+                        .interactiveDismissDisabled(updates.required)
                 }
         }
     }
@@ -30,12 +39,16 @@ struct WallpaperTarget: Identifiable {
     var mode: String { raw["mode"] as? String ?? "未知" }
     var width: Int { raw["width"] as? Int ?? 0 }
     var height: Int { raw["height"] as? Int ?? 0 }
-    var editable: Bool { WallpaperStorage.validSize(width: width, height: height) }
+    var missing: Bool { raw["missing"] as? Bool == true }
+    var repairable: Bool { missing && (raw["repairable"] as? Bool == true) }
+    var editable: Bool { !missing && WallpaperStorage.validSize(width: width, height: height) }
+    var status: String { raw["status"] as? String ?? (editable ? "可替换" : "暂时无法读取，请重新查找") }
 }
 
 @MainActor
 final class WorkshopModel: ObservableObject {
     @Published var targets: [WallpaperTarget] = []
+    @Published var lastRepairSummary = ""
     @Published var history: [SavedWallpaper] = []
     @Published var backups: [[String: Any]] = []
     @Published var busy = false
@@ -85,7 +98,7 @@ final class WorkshopModel: ObservableObject {
                 return entry
             }.sorted { $0.created > $1.created }
         } catch { message = "无法载入本地历史：\(error.localizedDescription)" }
-        backups = CCEngine.backups() as? [[String: Any]] ?? []
+        backups = (CCEngine.snapshots() as? [[String: Any]] ?? []) + (CCEngine.backups() as? [[String: Any]] ?? [])
     }
 
     private var cacheMaintenanceQueued = false
@@ -166,7 +179,7 @@ final class WorkshopModel: ObservableObject {
             DispatchQueue.main.async {
                 self.busy = false
                 finish(result)
-                self.backups = CCEngine.backups() as? [[String: Any]] ?? []
+                self.backups = (CCEngine.snapshots() as? [[String: Any]] ?? []) + (CCEngine.backups() as? [[String: Any]] ?? [])
             }
         }
     }
@@ -186,7 +199,7 @@ final class WorkshopModel: ObservableObject {
             self.message = result["message"] as? String ?? "扫描失败"
             let editable = self.targets.filter(\.editable).count
             self.lastScanSummary = self.targets.isEmpty
-                ? self.message : "找到 \(self.targets.count) 个，格式与尺寸符合要求 \(editable) 个"
+                ? self.message : "记录 \(self.targets.count) 个壁纸位置，可替换 \(editable) 个，缺失 \(self.targets.filter(\.missing).count) 个"
             self.makeReport()
             let ok = result["ok"] as? Bool == true
             self.report("scan_result", ok: ok, [
@@ -227,9 +240,33 @@ final class WorkshopModel: ObservableObject {
         }
     }
 
+    func repairMissing(_ requested: [WallpaperTarget]) {
+        guard !busy else { return }
+        let pending = requested.filter(\.repairable)
+        guard !pending.isEmpty else { return }
+        message = "正在按原位置补回壁纸…"
+        work({
+            var repaired = 0
+            var details: [String] = []
+            for target in pending {
+                let result = CCEngine.repairCache(target.raw) as? [String: Any] ?? [:]
+                if result["ok"] as? Bool == true { repaired += 1 }
+                details.append("\(target.name)：\(result["message"] as? String ?? "未能完成")")
+            }
+            return ["message": "已补回并核对 \(repaired)/\(pending.count) 个文件。\n" + details.joined(separator: "\n")]
+        }) { result in
+            self.lastRepairSummary = result["message"] as? String ?? "未能完成补回。"
+            self.scan(deep: true)
+        }
+    }
+
     func apply(entry: SavedWallpaper, target: WallpaperTarget) {
         message = "正在备份、写入并校验…"
-        work({ CCEngine.apply(target.raw, source: entry.bitmap.path) as? [String: Any] ?? [:] }) { result in
+        work({
+            let backup = CCEngine.saveSnapshot([target.raw]) as? [String: Any] ?? [:]
+            guard backup["ok"] as? Bool == true else { return backup }
+            return CCEngine.apply(target.raw, source: entry.bitmap.path) as? [String: Any] ?? [:]
+        }) { result in
             self.message = result["message"] as? String ?? "写入失败"
             self.lastApplySummary = self.message
             // Snapshots are invalid after a mutation attempt; require a rescan.
@@ -285,6 +322,7 @@ final class WorkshopModel: ObservableObject {
                 "system": UIDevice.current.systemVersion, "model": UIDevice.current.model,
                 "appGroup": group, "root": root, "message": message, "issues": issues,
                 "targets": targets.map(\.raw), "log": CCEngine.logs(),
+                "wallpaperFileHistory": CCEngine.wallpaperDiagnosticHistory(),
                 "appVersion": appVersion, "appGroupStatus": appGroupStatus,
                 "lastScan": lastScanSummary ?? "本次启动尚未查找",
                 "lastApply": lastApplySummary ?? "本次启动尚未应用"]
@@ -389,7 +427,10 @@ final class WorkshopModel: ObservableObject {
         }
         message = "正在备份并应用壁纸…"
         work({
+            let backup = CCEngine.saveSnapshot(targets.map(\.raw)) as? [String: Any] ?? [:]
+            guard backup["ok"] as? Bool == true else { return ["completed": 0, "message": backup["message"] as? String ?? "备份失败"] }
             var completed = 0
+            var notes: [String] = []
             for target in targets {
                 guard let entry = entries.first(where: { $0.mode == target.mode }) ?? (entries.count == 1 ? entries.first : nil) else {
                     return ["completed": completed, "message": "已应用 \(completed)/\(targets.count) 个。没有对应外观的壁纸，请重新选择。"]
@@ -403,8 +444,19 @@ final class WorkshopModel: ObservableObject {
                     return ["completed": completed, "message": "已应用 \(completed)/\(targets.count) 个。\(failure)\(recovery)"]
                 }
                 completed += 1
+                if let note = result["message"] as? String { notes.append("\(target.mode)：\(note)") }
             }
-            return ["completed": completed, "message": "\(completed) 张壁纸已写入，原文件已备份。请在车机确认显示效果。"]
+            // Verify the entire selection again after the last write, so an earlier
+            // variant disappearing during a batch cannot be reported as full success.
+            var verified = 0
+            for target in targets {
+                let entry = entries.first(where: { $0.mode == target.mode }) ?? entries[0]
+                let check = CCEngine.verify(target.raw, source: entry.bitmap.path) as? [String: Any] ?? [:]
+                if check["ok"] as? Bool == true { verified += 1 }
+                else { notes.append("\(target.mode)：写后复核未通过，请重新查找。") }
+            }
+            return ["completed": verified, "message": "\(verified)/\(targets.count) 个壁纸文件已通过写后核对。\n" + notes.joined(separator: "\n")]
+
         }) { result in
             self.message = result["message"] as? String ?? "应用失败"
             self.lastApplySummary = self.message
@@ -622,20 +674,24 @@ struct BackupsView: View {
     @State private var confirming = false
     var body: some View {
         List {
-            Text("每个壁纸只在第一次替换前保存苹果自带的原图，之后不会覆盖。恢复始终回到这一份。恢复前先查找车机壁纸。")
-            Button("查找车机壁纸") { model.scan(deep: false) }.disabled(model.busy || model.group.isEmpty)
-            if model.busy { ProgressView("正在处理…") }
-            Text(model.message)
-            if model.backups.isEmpty { Text("还没有原始壁纸。第一次替换时会自动保存。") }
-            ForEach(Array(model.backups.enumerated()), id: \.offset) { _, item in
-                VStack(alignment: .leading) {
-                    Text(item["name"] as? String ?? "备份")
-                    if let date = item["date"] as? Date { Text(date, style: .date); Text(date, style: .time) }
-                    Button("恢复苹果原壁纸") { chosen = item; confirming = true }.disabled(model.busy)
+            Section {
+                Button("恢复 CarPlay 默认壁纸") { model.restoreDefaultWallpapers() }.disabled(model.busy)
+                Text("下载默认壁纸并恢复六组深浅壁纸。").font(.footnote).foregroundStyle(.secondary)
+            }
+            if model.busy { ProgressView(model.message) } else { Text(model.message).font(.footnote) }
+            Section("应用前备份") {
+                Text("保留最近 10 次应用备份。卸载 App 会删除本机备份。").font(.footnote).foregroundStyle(.secondary)
+                ForEach(Array(model.backups.enumerated()), id: \.offset) { _, item in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(item["name"] as? String ?? "备份")
+                        if let date = item["date"] as? Date { Text(date, format: .dateTime.year().month().day().hour().minute()).font(.caption).foregroundStyle(.secondary) }
+                        Button("恢复此备份") { chosen = item; confirming = true }.disabled(model.busy)
+                    }
                 }
             }
         }.navigationTitle("备份与恢复")
-        .confirmationDialog("恢复第一次保存的苹果原壁纸？车上现在的图会被换回这一份。", isPresented: $confirming, titleVisibility: .visible) {
+        .interactiveDismissDisabled(model.busy)
+        .confirmationDialog("恢复这次应用前的壁纸？", isPresented: $confirming, titleVisibility: .visible) {
             Button("确认恢复") { if let chosen { model.restore(chosen) } }
         }
     }
@@ -650,6 +706,7 @@ struct HelpView: View {
                 LabeledContent("系统", value: "iOS \(UIDevice.current.systemVersion)")
                 LabeledContent("CarVista", value: model.appVersion)
                 diagnosticRow("签名容器", result: model.appGroupStatus)
+                diagnosticRow("App Group", result: model.group.isEmpty ? "未提供" : model.group)
                 diagnosticRow("最近查找", result: model.lastScanSummary ?? "本次启动尚未查找")
                 diagnosticRow("最近应用", result: model.lastApplySummary ?? "本次启动尚未应用")
                 diagnosticRow("最近解锁", result: model.lastUnlockSummary ?? "本次启动尚未解锁")
@@ -678,20 +735,7 @@ struct HelpView: View {
                 }
                 if let reportURL = model.reportURL { ShareLink("导出报告", item: reportURL) }
             }
-            Section("测试步骤") {
-                Text("1. 签名时保留有效 App Group，再安装。")
-                Text("2. 停车后，在车机 CarPlay 设置中切换几张内置图片壁纸，让系统生成缓存。")
-                Text("3. 打开“壁纸”，选择照片与尺寸模式，生成后点击“应用当前照片”。也可以从历史记录再次应用。")
-                Text("4. 确认备份并替换，然后点“重启 CarPlay”，尝试重载系统界面让壁纸生效。若仍显示旧图，请手动重启 iPhone 后重新连接车机。")
-                Text("5. 不满意可在恢复页恢复备份，再重启 iPhone 并连接 CarPlay 检查。")
-            }
-            Section("签名与兼容性") {
-                Text("App Group：\(model.group.isEmpty ? "未提供" : model.group)").textSelection(.enabled)
-                Text("需要签名工具实际创建并授予 App Group，例如支持该功能的 AltStore / SideStore。只有 entitlement 字符串不代表已获得权限。企业通配符描述文件通常不支持此功能。")
-                Text("本包使用公开的 worse_query 访问方案。iOS 27.2 和车机效果尚待实测；若系统拒绝访问或格式无法识别，会显示错误并停止写入。")
-            }
             Section("开源") {
-                Link("CarVista源码", destination: URL(string: "https://github.com/zhixinsky/CarVista")!)
                 Link("WQFiles / kolbicz", destination: URL(string: "https://github.com/kolbicz/WQFiles")!)
                 Link("worse_query / forcequitOS", destination: URL(string: "https://github.com/forcequitOS/worse_query")!)
                 Text("GPL-3.0-or-later。访问模块版权属于原作者。")

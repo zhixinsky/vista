@@ -41,7 +41,6 @@ struct WallpaperAdvancedControls: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("接在基础调色和左侧亮度之后，沿同一条渐变混合。默认参数不会再乘一次亮度。")
                 .font(.caption).foregroundStyle(.secondary)
-            Toggle("仅作用于左侧融合区域", isOn: $grade.local)
             Toggle("接缝高光保护", isOn: $grade.protectHighlights)
             Text(grade.protectHighlights
                  ? "亮部超过约 78% 后按比例压回，避免浅色壁纸发白、偏色和亮部细节被裁掉。"
@@ -82,7 +81,11 @@ struct WallpaperAdvancedControls: View {
             .pickerStyle(.segmented)
             SeamCurveEditor(points: curvePoints, tint: channel.tint)
                 .id(channel)
-            Button("恢复高级调色默认值") { grade = .init() }
+            Button("恢复高级调色默认值") {
+                var defaults = WallpaperAdvancedGrade()
+                defaults.local = grade.local
+                grade = defaults
+            }
         }
         .task(id: "\(original != nil)-\(grade.local)-\(seamWidth)") { await reloadHistogram() }
     }

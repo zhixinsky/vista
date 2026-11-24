@@ -3,13 +3,13 @@ import SwiftUI
 
 struct WallpaperAdjustmentView: View {
     private enum Ratio: String, CaseIterable {
-        case free = "自由裁剪", standard = "标准 4:3", wide = "宽屏 16:9", ultrawide = "超宽屏", buick = "别克大联屏"
+        case free = "自由裁剪", custom = "自定义尺寸", standard = "标准 4:3", wide = "宽屏 16:9", ultrawide = "别克大联屏", buick = "车机全图裁剪"
 
-        var allowsCornerResize: Bool { self != .free && self != .buick }
+        var allowsCornerResize: Bool { self != .free && self != .buick && self != .custom }
 
         var units: (width: Int, height: Int)? {
             switch self {
-            case .free: return nil
+            case .free, .custom: return nil
             case .wide: return (16, 9)
             case .ultrawide: return (87, 23)
             case .standard: return (4, 3)
@@ -41,6 +41,7 @@ struct WallpaperAdjustmentView: View {
     let photo: MakerPhoto
     let save: (WallpaperPixelCrop, WallpaperColorAdjustment) -> Void
     @State private var colorEditing: Bool
+    @State private var colorResetToken = 0
     @State private var color: WallpaperColorAdjustment
     @State private var preview: UIImage?
     @State private var pixels = CGSize.zero
@@ -55,6 +56,12 @@ struct WallpaperAdjustmentView: View {
     @State private var ratio: Ratio = .free
     @State private var showsRatios = false
     @State private var showsBuickSizeWarning = false
+    @State private var showsCustomSize = false
+    @State private var customWidth = ""
+    @State private var customHeight = ""
+    @State private var customSizeError: String?
+    @State private var customEditingWidth = true
+    @State private var customReplaceOnInput = true
     @State private var frameDragStart: WallpaperPixelCrop?
     @State private var cornerDragStart: WallpaperPixelCrop?
 
@@ -77,7 +84,7 @@ struct WallpaperAdjustmentView: View {
         NavigationStack {
             Group {
                 if colorEditing, crop != nil {
-                    WallpaperColorView(photo: croppedPhoto, embedded: true) { color = $0 }
+                    WallpaperColorView(photo: croppedPhoto, embedded: true, resetToken: colorResetToken) { color = $0 }
                 } else {
                     VStack(spacing: 4) {
                         GeometryReader { geometry in
@@ -166,7 +173,9 @@ struct WallpaperAdjustmentView: View {
                 }
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItemGroup(placement: .confirmationAction) {
-                    if !colorEditing {
+                    if colorEditing {
+                        Button("还原") { colorResetToken += 1 }
+                    } else {
                         Button { showsRatios.toggle() } label: {
                             Label(ratio == .free ? "比例" : ratio.rawValue, systemImage: "aspectratio")
                         }.disabled(crop == nil || cropLocked).accessibilityIdentifier("crop.ratio")
@@ -203,7 +212,7 @@ struct WallpaperAdjustmentView: View {
                 }
             }
         }
-        .accessibilityHidden(showsBuickSizeWarning)
+        .accessibilityHidden(showsBuickSizeWarning || showsCustomSize)
         .overlay {
             if showsBuickSizeWarning {
                 ZStack {
@@ -212,7 +221,7 @@ struct WallpaperAdjustmentView: View {
                         .accessibilityHidden(true)
                     VStack(spacing: 12) {
                         Text("原图尺寸不符").font(.headline)
-                        Text("别克大联屏仅适用于 6008 × 934 像素的原图。当前原图为 \(Int(pixels.width)) × \(Int(pixels.height)) 像素，请使用自由裁剪。")
+                        Text("车机全图裁剪仅适用于 6008 × 934 像素的原图。当前原图为 \(Int(pixels.width)) × \(Int(pixels.height)) 像素，请使用自由裁剪。")
                             .font(.subheadline).multilineTextAlignment(.center)
                         Button("知道了") { showsBuickSizeWarning = false }
                             .buttonStyle(.borderedProminent)
@@ -226,6 +235,110 @@ struct WallpaperAdjustmentView: View {
             }
         }
         .tint(CanvasTheme.accent)
+        .overlay {
+            if showsCustomSize {
+                ZStack {
+                    Color.black.opacity(0.32).ignoresSafeArea()
+                        .accessibilityHidden(true)
+                    HStack(alignment: .center, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("自定义尺寸").font(.headline)
+                            customSizeField("宽度", value: customWidth, selected: customEditingWidth) {
+                                customEditingWidth = true
+                                customReplaceOnInput = true
+                            }
+                            customSizeField("高度", value: customHeight, selected: !customEditingWidth) {
+                                customEditingWidth = false
+                                customReplaceOnInput = true
+                            }
+                            Text("原图：\(Int(pixels.width)) × \(Int(pixels.height)) 像素")
+                                .font(.caption).foregroundStyle(.secondary)
+                            if let customSizeError {
+                                Text(customSizeError).font(.caption).foregroundStyle(.red)
+                            }
+                            HStack {
+                                Button("取消") { showsCustomSize = false }
+                                Spacer()
+                                Button("确定") { applyCustomSize() }
+                                    .buttonStyle(.borderedProminent)
+                            }
+                        }
+                        .frame(maxWidth: 260, alignment: .leading)
+                        VStack(spacing: 5) {
+                            ForEach([ ["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["清空", "0", "删除"] ], id: \.self) { row in
+                                HStack(spacing: 5) {
+                                    ForEach(row, id: \.self) { key in
+                                        Button(key) { enterCustomDigit(key) }
+                                            .font(.subheadline.weight(.medium))
+                                            .frame(maxWidth: .infinity, minHeight: 36)
+                                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 7))
+                                            .contentShape(Rectangle())
+                                    }
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: 180)
+                    }
+                    .padding(14)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .padding(10)
+                }
+                .accessibilityAddTraits(.isModal)
+                .accessibilityAction(.escape) { showsCustomSize = false }
+            }
+        }
+    }
+
+    private func customSizeField(_ title: String, value: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(value.isEmpty ? "请输入" : value)
+                    .foregroundStyle(value.isEmpty ? Color.secondary : Color.primary)
+                Text("px").foregroundStyle(.secondary)
+            }
+            .padding(8)
+            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? CanvasTheme.accent : .clear, lineWidth: 2))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(title)，\(value.isEmpty ? "未填写" : value + "像素")")
+    }
+
+    private func enterCustomDigit(_ key: String) {
+        var value = customEditingWidth ? customWidth : customHeight
+        if key == "清空" {
+            value = ""
+        } else if key == "删除" {
+            if !value.isEmpty { value.removeLast() }
+        } else {
+            if customReplaceOnInput { value = "" }
+            if value.count < 9 { value.append(key) }
+        }
+        customReplaceOnInput = false
+        customSizeError = nil
+        if customEditingWidth { customWidth = value } else { customHeight = value }
+    }
+
+    private func applyCustomSize() {
+        guard !cropLocked, let current = crop else { return }
+        guard let width = Int(customWidth), let height = Int(customHeight), width > 0, height > 0 else {
+            customSizeError = "请输入大于 0 的整数像素。"
+            return
+        }
+        guard width <= Int(pixels.width), height <= Int(pixels.height) else {
+            customSizeError = "裁剪尺寸不能超过原图尺寸。"
+            return
+        }
+        let left = min(Int(pixels.width) - width, max(0, Int((current.rect.midX - CGFloat(width) / 2).rounded())))
+        let top = min(Int(pixels.height) - height, max(0, Int((current.rect.midY - CGFloat(height) / 2).rounded())))
+        crop = WallpaperPixelCrop(left: left, top: top, right: left + width, bottom: top + height)
+        ratio = .custom
+        zoom = 1
+        showsCustomSize = false
     }
 
     private var ratioOverlay: some View {
@@ -237,8 +350,17 @@ struct WallpaperAdjustmentView: View {
             VStack(spacing: 0) {
                 ForEach(Ratio.allCases, id: \.self) { option in
                     Button {
-                        selectRatio(option)
                         showsRatios = false
+                        if option == .custom {
+                            customWidth = crop.map { String(Int($0.rect.width)) } ?? ""
+                            customHeight = crop.map { String(Int($0.rect.height)) } ?? ""
+                            customSizeError = nil
+                            customEditingWidth = true
+                            customReplaceOnInput = true
+                            showsCustomSize = true
+                        } else {
+                            selectRatio(option)
+                        }
                     } label: {
                         HStack {
                             Text(option.rawValue)

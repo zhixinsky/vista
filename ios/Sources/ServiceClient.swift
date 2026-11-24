@@ -18,6 +18,20 @@ actor ServiceClient {
         }
     }
 
+    static var appBuild: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+    }
+
+    static var systemBuild: String {
+        var size = 0
+        guard sysctlbyname("kern.osversion", nil, &size, nil, 0) == 0, size > 0 else { return "" }
+        var buffer = [CChar](repeating: 0, count: size)
+        let result = buffer.withUnsafeMutableBufferPointer { pointer in
+            sysctlbyname("kern.osversion", pointer.baseAddress, &size, nil, 0)
+        }
+        return result == 0 ? String(cString: buffer) : ""
+    }
+
     static var appVersion: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
@@ -36,6 +50,8 @@ actor ServiceClient {
         loadQueue()
         var body = payload
         body["device_machine"] = Self.machine
+        body["ios_build"] = Self.systemBuild
+        body["app_build"] = Self.appBuild
         let facts = await deviceFacts()
         var event: [String: Any] = [
             "id": UUID().uuidString,
@@ -43,6 +59,9 @@ actor ServiceClient {
             "at": Self.stamp(Date()),
             "app_version": Self.appVersion,
             "ios_version": facts.ios,
+            "ios_build": Self.systemBuild,
+            "app_build": Self.appBuild,
+            "api_version": 2,
             "payload": body
         ]
         event["ok"] = ok.map { $0 as Any } ?? NSNull()
@@ -169,9 +188,20 @@ actor ServiceClient {
         } catch { return false }
     }
 
-    func fetchShares() async -> [SharedWallpaper]? {
+    func compatibility() async throws -> CompatibilityFeed {
+        let request = URLRequest(url: Self.endpoint("v1/compatibility"), cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(CompatibilityFeed.self, from: data)
+    }
+
+    func fetchShares(sort: ShareSort = .likes) async -> [SharedWallpaper]? {
         guard ServiceGate.enabled else { return nil }
-        var request = URLRequest(url: Self.endpoint("v1/shares"), timeoutInterval: 20)
+        var url = URLComponents(url: Self.endpoint("v1/shares"), resolvingAgainstBaseURL: false)!
+        url.queryItems = [URLQueryItem(name: "sort", value: sort.rawValue)]
+        var request = URLRequest(url: url.url!, timeoutInterval: 20)
         if let token = await ensureToken() {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -179,9 +209,49 @@ actor ServiceClient {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
             let items = try JSONDecoder().decode(ShareFeed.self, from: data).items.map(SharedWallpaper.init)
-            CatalogLibrary.rememberData(data, name: "shares")
+            if sort == .likes { CatalogLibrary.rememberData(data, name: "shares") }
             return items
         } catch { return nil }
+    }
+
+    func comments(_ id: String, offset: Int = 0) async throws -> ShareCommentPage {
+        var url = URLComponents(url: Self.endpoint("v1/shares/\(id)/comments"), resolvingAgainstBaseURL: false)!
+        url.queryItems = [URLQueryItem(name: "offset", value: String(offset))]
+        var request = URLRequest(url: url.url!, timeoutInterval: 20)
+        if let token = await ensureToken() { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw NSError(domain: "CarVista", code: 1, userInfo: [NSLocalizedDescriptionKey: "评论暂时无法加载，请稍后重试。"])
+        }
+        return try JSONDecoder().decode(ShareCommentPage.self, from: data)
+    }
+
+    func setCommentLike(_ shareID: String, commentID: String, liked: Bool) async throws -> CommentLikeResult {
+        guard ServiceGate.enabled, let token = await ensureToken() else { throw URLError(.notConnectedToInternet) }
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(shareID)/comments/\(commentID)/like"), timeoutInterval: 20)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["liked": liked])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+        return try JSONDecoder().decode(CommentLikeResult.self, from: data)
+    }
+
+    func postComment(_ shareID: String, id: UUID, body: String) async throws {
+        guard ServiceGate.enabled, let token = await ensureToken() else {
+            throw NSError(domain: "CarVista", code: 1, userInfo: [NSLocalizedDescriptionKey: "暂时无法连接，请稍后再发送。"])
+        }
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(shareID)/comments"), timeoutInterval: 20)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["id": id.uuidString, "body": body])
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            throw NSError(domain: "CarVista", code: 1, userInfo: [NSLocalizedDescriptionKey: object?["detail"] as? String ?? object?["message"] as? String ?? "发送失败，评论内容已保留，请重试。"])
+        }
     }
 
     func toggleLike(_ id: String) async -> (likes: Int, liked: Bool)? {
@@ -246,6 +316,9 @@ actor ServiceClient {
             "install_id": installID,
             "app_version": Self.appVersion,
             "ios_version": facts.ios,
+            "ios_build": Self.systemBuild,
+            "app_build": Self.appBuild,
+            "api_version": 2,
             "device_model": facts.model,
             "device_machine": Self.machine
         ]
@@ -284,7 +357,7 @@ actor ServiceClient {
         guard let host = url.host?.lowercased() else { return url }
         let local = ["127.0.0.1", "localhost", "::1"].contains(host)
         let apiHost = ServiceGate.baseURL.host?.lowercased()
-        let insecureAPI = url.scheme?.lowercased() == "http" && (host == apiHost || host == "carplay.dokor.cn")
+        let insecureAPI = url.scheme?.lowercased() == "http" && (host == apiHost || host == "carplayv2.dokor.cn")
         guard local || insecureAPI else { return url }
         let path = url.path.split(separator: "/").joined(separator: "/")
         guard !path.isEmpty else { return ServiceGate.baseURL }

@@ -60,7 +60,7 @@ enum ServiceGate {
         if let index = args.firstIndex(of: "-CarVistaAPIBase"), index + 1 < args.count, let url = URL(string: args[index + 1]) {
             return url
         }
-        return URL(string: "https://carplay.dokor.cn")!
+        return URL(string: "https://carplayv2.dokor.cn")!
     }
 
     static func join(_ path: String) -> URL {

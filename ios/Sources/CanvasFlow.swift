@@ -108,6 +108,11 @@ struct CanvasHomeView: View {
         .sheet(isPresented: $guide, onDismiss: { guideSeen = true }) { CanvasGuideView() }
     }
 }
+private enum HistoryShareFilter: String, CaseIterable, Identifiable {
+    case all = "全部", shared = "已共享", unshared = "未共享"
+    var id: String { rawValue }
+}
+
 struct CanvasHistoryView: View {
     @EnvironmentObject var model: WorkshopModel
     @AppStorage("CarVistaSharedHistory") private var sharedHistory = ""
@@ -120,12 +125,30 @@ struct CanvasHistoryView: View {
     @State private var shareAuthor = ""
     @State private var sharingID: UUID?
     @State private var shareNotes: [UUID: String] = [:]
+    @State private var shareFilter: HistoryShareFilter = .all
+    private var sharedIDs: Set<String> { Set(sharedHistory.split(separator: "|").map(String.init)) }
+    private var visibleCollections: [WallpaperCollection] {
+        model.collections.filter { collection in
+            let shared = collection.entries.contains { sharedIDs.contains($0.id.uuidString) }
+            switch shareFilter {
+            case .all: return true
+            case .shared: return shared
+            case .unshared: return !shared
+            }
+        }
+    }
     var body: some View {
         List {
+            Picker("共享状态", selection: $shareFilter) {
+                ForEach(HistoryShareFilter.allCases) { Text($0.rawValue).tag($0) }
+            }.pickerStyle(.segmented)
             if model.collections.isEmpty {
                 ContentUnavailableView("还没有保存的壁纸", systemImage: "photo.stack", description: Text("到“壁纸”选择图片，保存后就会出现在这里。"))
             }
-            ForEach(model.collections) { collection in
+            if !model.collections.isEmpty && visibleCollections.isEmpty {
+                ContentUnavailableView(shareFilter == .shared ? "还没有已共享的壁纸" : "没有未共享的壁纸", systemImage: "photo.stack")
+            }
+            ForEach(visibleCollections) { collection in
                 let shared = collection.entries.contains { sharedHistory.split(separator: "|").contains(Substring($0.id.uuidString)) }
                 ZStack(alignment: .trailing) {
                     Button { detailTarget = collection } label: {
@@ -397,6 +420,8 @@ struct ApplyWallpaperView: View {
     @Environment(\.dismiss) private var dismiss
     let entries: [SavedWallpaper]
     @State private var selected: [WallpaperTarget] = []
+    @State private var repairTargets: [WallpaperTarget] = []
+    @State private var confirmRepair = false
     @State private var confirmation = false
     @State private var completed: Int?
     @State private var targetName = ""
@@ -423,6 +448,12 @@ struct ApplyWallpaperView: View {
                 }
             }
             if !finished {
+                if !model.targets.isEmpty {
+                    Section {
+                        Button("重新检查深浅状态") { model.scan(deep: true) }
+                            .disabled(model.busy || model.group.isEmpty)
+                    }
+                }
                 if model.targets.filter(\.editable).isEmpty {
                     Section {
                         if !model.targets.isEmpty { Text("找到缓存，但当前格式或尺寸无法替换。请重新查找，或在设置中导出诊断报告。") }
@@ -432,33 +463,35 @@ struct ApplyWallpaperView: View {
                         if model.busy { Button("停止查找") { CCEngine.cancelScan() } }
                     }
                 }
-                ForEach(targetFamilies(model.targets.filter(\.editable))) { family in
+                if !model.lastRepairSummary.isEmpty {
+                    Section("补回结果") { Text(model.lastRepairSummary).font(.footnote) }
+                }
+                ForEach(targetFamilies(model.targets)) { family in
                     Section(family.title) {
-                        let matching = family.targets.filter { modes.contains($0.mode) }
-                        if let target = family.targets.first {
-                            ApplyTargetPreview(target: target)
-                        }
-                        if modes.count > 1 && Set(matching.map(\.mode)) == modes {
-                            Button("替换深色与浅色") { choose(matching, name: family.title) }.disabled(model.busy)
-                            DisclosureGroup("单独替换") { variantButtons(family) }
-                        } else {
-                            variantButtons(family)
-                        }
+                        familyCard(family)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                            .listRowBackground(Color.clear)
                     }
                 }
             }
         }.navigationTitle("应用到 CarPlay").navigationBarTitleDisplayMode(.inline)
             .toolbar { Button(finished ? "完成" : "关闭") { dismiss() }.disabled(model.busy) }
+            .alert("补回已记录的壁纸？", isPresented: $confirmRepair) {
+                Button("暂不处理", role: .cancel) { }
+                Button("补回 \(repairTargets.count) 个文件") { model.repairMissing(repairTargets) }
+            } message: {
+                Text("使用本机副本补回缺失位置。副本可能是原始壁纸，补回后可重新选择图片；已有文件不会被覆盖。")
+            }
             .interactiveDismissDisabled(model.busy)
             .task { if model.targets.isEmpty && !model.busy && !model.group.isEmpty { model.scan(deep: false) } }
             .sheet(isPresented: $confirmation) {
                 NavigationStack {
                     List {
                         if let entry = entries.first, let image = UIImage(contentsOfFile: entry.preview.path) {
-                            Section("新壁纸") { Image(uiImage: image).resizable().scaledToFit() }
+                            Section("新壁纸") { ApplyImagePreview(image: image, height: 150) }
                         }
                         Section("将替换「\(targetName)」") {
-                            if let target = selected.first { ApplyTargetPreview(target: target) }
+                            if let target = selected.first { ApplyTargetPreview(target: target, height: 150) }
                             Text(selected.map(\.mode).joined(separator: "、"))
                             Text("应用前会自动备份原壁纸。").font(.footnote).foregroundStyle(.secondary)
                         }
@@ -486,29 +519,145 @@ struct ApplyWallpaperView: View {
         confirmation = true
     }
 
-    private func variantButtons(_ family: TargetFamily) -> some View {
-        ForEach(family.targets) { target in
-            Button("替换\(target.mode)壁纸") { choose([target], name: family.title) }
-                .disabled(model.busy || (entries.count > 1 && !modes.contains(target.mode)))
+    private func writableTarget(_ mode: String, in family: TargetFamily) -> WallpaperTarget? {
+        let candidates = family.targets.filter { $0.mode == mode }
+        guard candidates.count == 1, let target = candidates.first, target.editable,
+              entries.count == 1 || modes.contains(mode) else { return nil }
+        return target
+    }
+
+    private func unavailableReason(_ mode: String, in family: TargetFamily) -> String? {
+        let candidates = family.targets.filter { $0.mode == mode }
+        guard !candidates.isEmpty else { return "尚未找到\(mode)文件，请重新检查深浅状态。" }
+        guard candidates.count == 1 else { return "\(mode)位置存在重复记录，请重新查找。" }
+        guard let target = candidates.first, target.editable else {
+            return "\(mode)：\(candidates.first?.status ?? "暂不可用")"
         }
+        guard entries.count == 1 || modes.contains(mode) else { return "当前作品没有\(mode)图片，请先保存对应图片。" }
+        return nil
+    }
+
+    private func familyCard(_ family: TargetFamily) -> some View {
+        let dark = writableTarget("深色", in: family)
+        let light = writableTarget("浅色", in: family)
+        return VStack(spacing: 9) {
+            HStack(alignment: .top, spacing: 10) {
+                modeCard("深色", family: family, writable: dark)
+                modeCard("浅色", family: family, writable: light)
+            }
+            Button {
+                if let dark, let light { choose([dark, light], name: family.title) }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "square.on.square")
+                    Text("同时写入深色与浅色")
+                }
+                .font(.caption.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .frame(height: 30)
+                .foregroundStyle(CanvasTheme.accent)
+                .background(CanvasTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.busy || dark == nil || light == nil)
+            .opacity(model.busy || dark == nil || light == nil ? 0.45 : 1)
+        }
+        .padding(10)
+        .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 13))
+    }
+
+    private func modeCard(_ mode: String, family: TargetFamily, writable: WallpaperTarget?) -> some View {
+        let target = family.targets.first(where: { $0.mode == mode && $0.editable })
+            ?? family.targets.first(where: { $0.mode == mode })
+        return VStack(spacing: 5) {
+            if let target {
+                ApplyTargetPreview(target: target)
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(uiColor: .tertiarySystemFill))
+                    .overlay { Image(systemName: "photo").foregroundStyle(.secondary) }
+                    .frame(height: 68)
+            }
+            Button {
+                if let writable { choose([writable], name: family.title) }
+            } label: {
+                Text("写入\(mode)")
+                .font(.caption.weight(.medium))
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .foregroundStyle(CanvasTheme.accent)
+                .background(Color(uiColor: .tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 7))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.busy || writable == nil)
+            .opacity(model.busy || writable == nil ? 0.45 : 1)
+            if let reason = unavailableReason(mode, in: family) {
+                Text(reason)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let repair = family.targets.first(where: { $0.mode == mode && $0.repairable }) {
+                    Button("补回\(mode)") { repairTargets = [repair]; confirmRepair = true }
+                        .font(.caption)
+                        .disabled(model.busy)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+}
+
+private struct ApplyImagePreview: View {
+    let image: UIImage?
+    var height: CGFloat = 68
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                        .clipped()
+                        .blur(radius: 12)
+                        .scaleEffect(1.15)
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                } else {
+                    Color(uiColor: .tertiarySystemFill)
+                    Image(systemName: "photo")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipped()
+        }
+        .frame(height: height)
+        .frame(maxWidth: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
 private struct ApplyTargetPreview: View {
     let target: WallpaperTarget
+    var height: CGFloat = 68
     @State private var image: UIImage?
 
     var body: some View {
-        Group {
-            if let image { Image(uiImage: image).resizable().scaledToFit() }
-            else { Label("现有壁纸预览", systemImage: "photo").font(.caption).foregroundStyle(.secondary) }
-        }
-        .frame(maxHeight: 120)
-        .task(id: target.id) {
-            let path = target.id
-            let preview = await Task.detached { CCEngine.preview(path) }.value
-            if !Task.isCancelled { image = preview }
-        }
+        ApplyImagePreview(image: image, height: height)
+            .task(id: target.id) {
+                image = nil
+                let path = target.id
+                let preview = await Task.detached { CCEngine.preview(path) }.value
+                if !Task.isCancelled { image = preview }
+            }
     }
 }
 
@@ -522,7 +671,7 @@ struct CacheBrowserView: View {
                     Text(model.group.isEmpty ? "当前安装无法访问车机壁纸。你仍可在首页制作和保存壁纸。" : model.message)
                     Button("查找车机壁纸") { model.scan(deep: false) }.disabled(model.busy || model.group.isEmpty)
                     Button("继续查找（首次使用）") { model.scan(deep: true) }.disabled(model.busy || model.group.isEmpty)
-                } else { Text("找到 \(model.targets.count) 个壁纸文件").foregroundStyle(.secondary) }
+                } else { Text("记录 \(model.targets.count) 个位置 · 可替换 \(model.targets.filter(\.editable).count) 个").foregroundStyle(.secondary) }
             }
             ForEach(targetFamilies(model.targets)) { family in
                 Section(family.title) {
@@ -603,20 +752,17 @@ struct CanvasSettingsView: View {
                 }.padding(.vertical, 6)
             }
             Section {
-                WallpaperRefreshButton()
-                Text("结束当前连接并重新进入车机，用来让新壁纸生效。").font(.caption).foregroundStyle(.secondary)
                 Button { guide = true } label: { Label("使用指南", systemImage: "book") }
-                NavigationLink { SupportedDevicesView() } label: { Label("支持机型", systemImage: "iphone") }
+                NavigationLink { SupportedVersionsView() } label: { Label("支持系统版本", systemImage: "iphone") }
                 NavigationLink { BackupsView() } label: { Label("备份与恢复", systemImage: "arrow.uturn.backward") }
                 NavigationLink { HelpView() } label: { Label("安装检查与诊断", systemImage: "stethoscope") }
             }
             Section("关于") {
-                Link("项目源码", destination: URL(string: "https://github.com/zhixinsky/CarVista")!)
+                NavigationLink { AppUpdateView() } label: { Label("检查 App 更新", systemImage: "arrow.down.circle") }
                 Text("基于公开研究实现。感谢 WQFiles 与 worse_query 作者。GPL-3.0-or-later。")
                     .font(.footnote).foregroundStyle(.secondary)
-                Text("制作记录和 CarPlay 失败信息会发送到服务端，用于改进兼容性。App 内不显示账号。")
+                Text("CarVista 错误日志及诊断信息会发送到服务端，用于改进兼容性和优化。")
                     .font(.footnote).foregroundStyle(.secondary)
-                Text("iOS 27.2 与实际车机效果仍需设备验证。").font(.footnote).foregroundStyle(.secondary)
             }
         }.navigationTitle("设置").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .sheet(isPresented: $guide) { CanvasGuideView() }
@@ -633,31 +779,61 @@ struct CanvasSettingsView: View {
     }
 }
 
-private struct SupportedDevicesView: View {
+struct CompatibilityFeed: Decodable {
+    let items: [CompatibleDevice]
+    let versions: [String]?
+}
+
+struct CompatibleDevice: Decodable, Identifiable {
+    let id: String
+    let machine: String
+    let name: String
+    let system: String
+}
+
+private struct SupportedVersionsView: View {
+    @State private var versions: [String] = []
+    @State private var loading = false
+    @State private var failed = false
     var body: some View {
         List {
-            Section("CarVista 壁纸替换反馈") {
-                LabeledContent("iPhone 16 Pro Max", value: "iOS 27.2")
-                Text("旧版有成功替换反馈。其他机型和系统版本的车机显示效果仍待验证。")
-                    .font(.footnote).foregroundStyle(.secondary)
+            Section {
+                Text("理论上支持 iOS 26.0–27.3 Beta 1")
             }
-            Section("WQFiles 上游实测机型") {
-                LabeledContent("iPhone 16 Pro Max", value: "iOS 27.2.1")
-                LabeledContent("iPhone 17 Pro Max", value: "iOS 27.0.1")
-                LabeledContent("iPad Air 5", value: "iPadOS 27.0.1")
-                LabeledContent("iPhone 14 Pro", value: "iOS 26.7.1")
-                Text("以上为 WQFiles 文件访问测试记录。CarVista 壁纸替换需以车机显示结果为准。")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-            Section("WQFiles 系统兼容范围") {
-                Text("支持 iOS 26.0–26.7.2，以及 iOS 27.0 至 27.3 beta 1。")
-                Text("上游用户反馈 iOS 26.5、27.2 和 27.3 beta 1 可使用 WQFiles。CarVista 在 27.3 beta 1 的壁纸替换仍待验证。")
-                    .font(.footnote).foregroundStyle(.secondary)
-                Text("iOS 18 及更早版本、iOS 27.3 beta 2 及以后版本无法使用此方案替换壁纸。")
-                Link("查看上游测试记录", destination: URL(string: "https://github.com/kolbicz/WQFiles#tested-devices")!)
+            Section("已有成功记录") {
+                if !versions.isEmpty {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 135), spacing: 8)], alignment: .leading, spacing: 8) {
+                        ForEach(versions, id: \.self) { version in
+                            Text(version)
+                                .font(.subheadline)
+                                .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)
+                                .padding(.horizontal, 10)
+                                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                if loading { ProgressView() }
+                if failed {
+                    Button("加载失败，点击重试") { Task { await reload() } }
+                }
             }
         }
-        .navigationTitle("支持机型")
+        .navigationTitle("支持系统版本")
         .navigationBarTitleDisplayMode(.inline)
+        .task { await reload() }
+        .refreshable { await reload() }
+    }
+
+    private func reload() async {
+        guard !loading else { return }
+        loading = true
+        failed = false
+        defer { loading = false }
+        do {
+            let feed = try await ServiceClient.shared.compatibility()
+            versions = feed.versions ?? Array(Set(feed.items.map(\.system))).sorted(by: >)
+        }
+        catch { failed = true }
     }
 }
