@@ -98,16 +98,17 @@ struct WallpaperColorView: View {
 
     private var previewPanel: some View {
         VStack(spacing: 14) {
-            if embedded {
-                Text("请先裁剪，再调色")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
             Group {
                 if let image = showOriginal ? original : (corrected ?? original) {
-                    Image(uiImage: image).resizable().scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: embedded ? .infinity : 210)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    GeometryReader { geometry in
+                        let ratio = image.size.width / max(image.size.height, 1)
+                        let width = min(geometry.size.width, geometry.size.height * ratio)
+                        ZoomableWallpaperPreview(image: image, resetID: photo.id, aspectRatio: ratio)
+                            .frame(width: width, height: width / ratio)
+                            .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: embedded ? .infinity : 210)
+                    .frame(minHeight: embedded ? 120 : 210)
                 } else if problem == nil {
                     ProgressView("正在准备预览…")
                 }

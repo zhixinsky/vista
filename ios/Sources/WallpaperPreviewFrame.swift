@@ -61,10 +61,11 @@ struct CatalogWallpaperPreview: View {
 struct ZoomableWallpaperPreview: View {
     let image: UIImage?
     let resetID: UUID?
+    var aspectRatio: CGFloat = 16.0 / 9.0
     @State private var resetViewID = 0
     var body: some View {
         Color(uiColor: .tertiarySystemFill)
-            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            .aspectRatio(aspectRatio, contentMode: .fit)
             .overlay { NativeWallpaperZoom(image: image, resetID: resetID, resetViewID: resetViewID) }
             .overlay(alignment: .bottomTrailing) {
                 if image != nil {
