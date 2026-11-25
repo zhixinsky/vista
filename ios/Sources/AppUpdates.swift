@@ -102,10 +102,14 @@ struct AppUpdateView: View {
             }
             if let release = updates.release {
                 Section(updates.required ? "此版本需要更新" : "发现新版本") {
-                    LabeledContent("新版本", value: "\(release.version)（\(release.build)）")
+                    LabeledContent("新版本", value: release.version)
                     LabeledContent("系统要求", value: "iOS \(release.min_ios) 及以上")
                     LabeledContent("安装包", value: ByteCountFormatter.string(fromByteCount: release.bytes, countStyle: .file))
-                    Text(release.notes)
+                    if !release.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(release.notes)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                     Button { openURL(release.download_url) } label: {
                         Label("下载 IPA", systemImage: "arrow.down.circle.fill")
                     }.accessibilityIdentifier("updates.download")
