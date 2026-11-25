@@ -2,7 +2,7 @@ import Foundation
 
 /// Backend eligibility is separate from verified access to the wallpaper cache.
 enum CarPlayCompatibility {
-    static let supportSummary = "支持 iOS 17–iOS 27.3 beta 1"
+    static let supportSummary = "支持 iOS 17 / 18 / 26 / 27 部分版本"
     static let supportDetails = "iOS 17.0–17.7.x、18.0–18.7.1 无需 App Group；iOS 26.0–27.2 及 27.3 beta 1（24C5037i）需要 App Group。iOS 18.7.2 至 25、27.3 其他版本暂不支持。"
 
     enum Backend: String {

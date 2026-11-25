@@ -1041,10 +1041,16 @@ private struct SupportedVersionsView: View {
     var body: some View {
         List {
             Section {
-                Text(CarPlayCompatibility.supportSummary)
-                Text(CarPlayCompatibility.supportDetails).font(.footnote).foregroundStyle(.secondary)
-                Text("iOS 17/18 目前适配 iPhone XS/XR 至 iPhone 16 系列；iPad 暂不纳入此方案。")
-                    .font(.footnote).foregroundStyle(.secondary)
+                versionRow("iOS 17.0–17.7.x", note: "无需带组")
+                versionRow("iOS 18.0–18.7.1", note: "无需带组")
+                versionRow("iOS 26.0–27.2", note: "需要带组")
+                versionRow("iOS 27.3 beta 1", note: "需要带组")
+            } header: {
+                Text("支持范围")
+            } footer: {
+                Text("27.3 仅限 beta 1（24C5037i）。17/18 适配 iPhone XS/XR 至 16 系列，暂不含 iPad。其他版本暂不支持。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             Section("已有成功记录") {
                 if !versions.isEmpty {
@@ -1069,6 +1075,15 @@ private struct SupportedVersionsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await reload() }
         .refreshable { await reload() }
+    }
+
+    private func versionRow(_ version: String, note: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(version).font(.subheadline.weight(.medium))
+            Spacer(minLength: 8)
+            Text(note).font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 3)
     }
 
     private func reload() async {
