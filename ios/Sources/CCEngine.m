@@ -255,7 +255,15 @@ static NSString *CCRootForPath(NSString *path);
     CCSetup();
     WQScanCancellation *scan = WQScanCancellation.new;
     @synchronized (CCEngine.class) { CCScan = scan; }
-    if ([CCKernelSession isCandidate] && ![CCKernelSession isReady]) return CCFail(@"请先运行 CarPlay 自检，建立 iOS 17/18 访问会话。");
+    NSInteger systemMajor = NSProcessInfo.processInfo.operatingSystemVersion.majorVersion;
+    if ((systemMajor == 17 || systemMajor == 18) && ![CCKernelSession isCandidate])
+        return CCFail(@"当前系统或机型不在 iOS 17.0–17.7.x / 18.0–18.7.1 方案范围内。");
+    // Explicit discover/self-check calls share the iOS 17/18 session.
+    // iOS 26/27 never enter this branch and retain WQFiles authorization.
+    if ([CCKernelSession isCandidate] && ![CCKernelSession isReady]) {
+        NSDictionary *session = [CCKernelSession prepare];
+        if (![session[@"ok"] boolValue]) return session;
+    }
     if (![CCKernelSession isReady] && !wq_app_group().length) return CCFail(@"签名未提供 App Group。请用支持 App Group 的签名方式重新安装；通配符证书通常不满足要求。");
     CCAllowFullScan = allowFullScan;
     @synchronized (CCRoots) { [CCRoots removeAllObjects]; }

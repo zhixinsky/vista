@@ -59,7 +59,7 @@ struct CarPlaySelfCheckView: View {
                     VStack(spacing: 0) {
                         row("设备信息", detail: "\(deviceName) · \(ServiceClient.machine)", good: true)
                         row("CarVista 版本", detail: model.appVersion, good: true)
-                        row("系统兼容性", detail: "iOS \(UIDevice.current.systemVersion) · \(ServiceClient.systemBuild)\n" + (model.kernelBackendCandidate ? "符合内核方案候选条件；实际可用性以自检为准" : "支持 iOS 26 至 27.3 beta 1（24C5037i）"), good: supported)
+                        row("系统兼容性", detail: "iOS \(UIDevice.current.systemVersion) · \(ServiceClient.systemBuild)\n" + CarPlayCompatibility.supportSummary + "\n" + CarPlayCompatibility.supportDetails, good: supported)
                         row("App Group", detail: model.kernelBackendCandidate ? "17.0–17.7.x / 18.0–18.7.1 内核方案不要求带组" : model.appGroupStatus, good: model.kernelBackendCandidate || (!model.group.isEmpty && FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: model.group) != nil))
                         row("实际访问权限", detail: checked ? readable ? "目标壁纸目录可列出" : "尚未确认可读取目标壁纸目录" : "等待检索", good: checked ? readable : nil)
                         row("CarPlay 容器", detail: checked ? model.root.isEmpty ? "未定位，请重新检测" : "已定位并确认身份" : "等待检索", good: checked ? !model.root.isEmpty : nil)

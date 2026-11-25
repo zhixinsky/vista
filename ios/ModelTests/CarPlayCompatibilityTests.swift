@@ -36,4 +36,13 @@ final class CarPlayCompatibilityTests: XCTestCase {
             XCTAssertFalse(CarPlayCompatibility.supported(version: version, build: "24C5037i"))
         }
     }
+    func testExistingSystemsAlwaysKeepContainerBackend() {
+        for machine in ["iPhone15,3", "iPhone18,1", "iPad13,1"] {
+            for version in ["26.0", "26.7.3", "27.0", "27.2"] {
+                XCTAssertEqual(CarPlayCompatibility.candidateBackend(version: version, build: "", machine: machine), .containerAccess)
+            }
+            XCTAssertEqual(CarPlayCompatibility.candidateBackend(version: "27.3", build: "24C5037i", machine: machine), .containerAccess)
+            XCTAssertNil(CarPlayCompatibility.candidateBackend(version: "27.3", build: "24C5049d", machine: machine))
+        }
+    }
 }

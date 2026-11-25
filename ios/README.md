@@ -23,7 +23,8 @@
 - 未连接车机也能选图、预览并制作本地 CPBitmap，自动生成深色与浅色版本。
 - 深浅色文件在历史中合并展示；支持详情预览、分享、重命名、删除单条与清空本地记录。
 - 照片和调整草稿自动保留，移除照片不会删除历史或恢复备份。
-- 基于 WQFiles / worse_query 的 App Group 访问后端，快速定位和可停止的完整容器扫描。
+- iOS 17.0–17.7.x / 18.0–18.7.1：KernelDirect 会话与原生目录访问，不要求 App Group。
+- iOS 26.0–27.3 beta 1（24C5037i）：保留 WQFiles / worse_query 的 App Group 访问后端。
 - 仅识别 `com.apple.CarPlayWallpaper`，在其 Library/Caches 下发现实际 CPBitmap，不写死颜色或 `-14` 后缀。
 - 读取目标尺寸、深浅色分类；解码失败或尺寸异常时禁止替换。
 - 相册选图、拖动定位与缩放预览；生成并回读验证 CPBitmap。
@@ -33,9 +34,9 @@
 
 ## 安装与测试
 
-GitHub Actions 产物为 `CarVista-resign.ipa`。它带有 ad-hoc 签名和 App Group entitlement，**不能直接安装**，必须通过签名工具授予有效 App Group 并重新签名。AltStore / SideStore 等支持 App Group 的流程可作为选择；仅保留 entitlement 文本不代表具备权限。普通企业通配符 profile 通常不满足条件。
+GitHub Actions 产物为 `CarVista-resign.ipa`。它带有 ad-hoc 签名和 App Group entitlement，**不能直接安装**，必须重新签名。iOS 17/18 方案不要求 App Group，可在签名时移除不匹配的 App Group entitlement；iOS 26/27 方案必须通过签名工具授予有效 App Group。AltStore / SideStore 等支持 App Group 的流程可作为选择；仅保留 entitlement 文本不代表具备权限。普通企业通配符 profile 通常不满足条件。
 
-1. 签名安装后，在说明页确认 App Group 不为空。
+1. 签名安装后，iOS 17/18 先运行 CarPlay 自检；iOS 26/27 在说明页确认 App Group 可用。
 2. 停车后连接 CarPlay，切换几张内置图片壁纸生成缓存。
 3. 打开“壁纸”选择照片与尺寸模式，点击“生成壁纸文件”，自动生成并保存深色与浅色版本。
 4. 在保存后的详情或历史记录中选择“应用到 CarPlay 壁纸”，应用会查找缓存。未找到时可“继续查找”；选中目标后确认应用。
@@ -46,7 +47,7 @@ GitHub Actions 产物为 `CarVista-resign.ipa`。它带有 ad-hoc 签名和 App 
 
 ## 构建
 
-macOS + Xcode + XcodeGen：在 ios 目录执行 `xcodegen generate`，打开 `CarVista.xcodeproj`。本地真机签名需为自己的 Bundle ID 创建并授予 App Group。
+macOS + Xcode + XcodeGen：在 ios 目录执行 `xcodegen generate`，打开 `CarVista.xcodeproj`。本地真机签名使用自己的 Bundle ID；iOS 26/27 后端还需创建并授予 App Group。
 
 `.github/workflows/ios-diagnostics.yml` 在 main 更新后自动编译。流水线先运行裁剪/扫描测试和上游文件写入与容器解析回归测试，再编译真机 arm64 应用，打包并生成 SHA-256。
 

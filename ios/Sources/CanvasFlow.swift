@@ -1041,7 +1041,10 @@ private struct SupportedVersionsView: View {
     var body: some View {
         List {
             Section {
-                Text("理论上支持 iOS 26.0–27.3 Beta 1")
+                Text(CarPlayCompatibility.supportSummary)
+                Text(CarPlayCompatibility.supportDetails).font(.footnote).foregroundStyle(.secondary)
+                Text("iOS 17/18 目前适配 iPhone XS/XR 至 iPhone 16 系列；iPad 暂不纳入此方案。")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
             Section("已有成功记录") {
                 if !versions.isEmpty {

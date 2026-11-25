@@ -674,7 +674,7 @@ struct WorkshopView: View {
                     Section {
                         Label("CarVista", systemImage: "car.side.fill").font(.title2.bold())
                         Text("自定义你的车机壁纸").foregroundStyle(.secondary)
-                        Text("实验测试版 · iOS 27.2 尚待真机验证").font(.caption)
+                        Text(CarPlayCompatibility.supportSummary).font(.caption).font(.caption)
                     }
                     Section("缓存与连接") {
                         Text(model.message).textSelection(.enabled)
