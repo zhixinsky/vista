@@ -1,6 +1,15 @@
 name: Build CarVista IPA
 on:
   workflow_dispatch:
+    inputs:
+      channel:
+        description: App release channel (match the upload channel)
+        required: true
+        default: beta
+        type: choice
+        options:
+          - beta
+          - stable
 permissions:
   contents: read
 jobs:
@@ -13,6 +22,8 @@ jobs:
         run: brew install xcodegen
       - name: Generate project and compile for physical iPhone
         working-directory: ios
+        env:
+          RELEASE_CHANNEL: ${{ inputs.channel || 'beta' }}
         run: |
           set -euo pipefail
           xcodebuild -version
@@ -21,6 +32,7 @@ jobs:
             -scheme CarVista -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath DerivedData \
+            CARVISTA_RELEASE_CHANNEL="$RELEASE_CHANNEL" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Package IPA for re-signing with App Group
         working-directory: ios
