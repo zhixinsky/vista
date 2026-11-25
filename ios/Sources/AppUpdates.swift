@@ -13,7 +13,13 @@ struct AppRelease: Decodable, Identifiable {
     let sha256: String
     let download_url: URL
 }
+private struct InstalledRelease: Decodable {
+    let version: String
+    let build: String
+    let channel: String
+}
 private struct AppUpdateResponse: Decodable {
+    let current_release: InstalledRelease?
     let api_version: Int
     let update_available: Bool
     let required: Bool
@@ -25,6 +31,7 @@ final class AppUpdates: ObservableObject {
     static let shared = AppUpdates()
     @Published private(set) var checking = false
     @Published private(set) var checked = false
+    @Published private(set) var installedChannel: String?
     @Published private(set) var release: AppRelease?
     @Published private(set) var required = false
     @Published private(set) var error: String?
@@ -43,6 +50,7 @@ final class AppUpdates: ObservableObject {
         var components = URLComponents(url: ServiceGate.join("api/app/updates"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "build", value: ServiceClient.appBuild),
+            URLQueryItem(name: "version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""),
             URLQueryItem(name: "ios", value: UIDevice.current.systemVersion),
             URLQueryItem(name: "bundle_id", value: Bundle.main.object(forInfoDictionaryKey: "CarVistaUpdateBundleID") as? String ?? "local.carvista"),
             URLQueryItem(name: "channel", value: includeBeta ? "beta" : "stable")
@@ -56,6 +64,10 @@ final class AppUpdates: ObservableObject {
             }
             let result = try JSONDecoder().decode(AppUpdateResponse.self, from: data)
             guard result.api_version == 2 else { throw UpdateError.message("更新服务协议不匹配，请联系管理员。") }
+            let installed = result.current_release
+            let localVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            installedChannel = installed?.build == ServiceClient.appBuild && installed?.version == localVersion
+                ? installed?.channel : nil
             if result.update_available {
                 guard let next = result.release, next.download_url.scheme == "https",
                       next.download_url.host == ServiceGate.baseURL.host else {
@@ -87,9 +99,9 @@ struct AppUpdateView: View {
     var prompted = false
     private var currentVersion: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未知"
-        let channel = (Bundle.main.object(forInfoDictionaryKey: "CarVistaReleaseChannel") as? String)?.lowercased()
-        let label = channel == "beta" ? "测试版" : channel == "stable" ? "稳定版" : "渠道未知"
-        return "\(version)（\(label)）"
+        guard let channel = updates.installedChannel,
+              channel == "beta" || channel == "stable" else { return version }
+        return "\(version)（\(channel == "beta" ? "测试版" : "稳定版")）"
     }
     var body: some View {
         List {

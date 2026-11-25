@@ -4,8 +4,6 @@
 <dict>
 	<key>CarVistaBackendAPIVersion</key>
 	<string>2</string>
-	<key>CarVistaReleaseChannel</key>
-	<string>$(CARVISTA_RELEASE_CHANNEL)</string>
 	<key>CarVistaUpdateBundleID</key>
 	<string>local.carvista</string>
 </dict>
