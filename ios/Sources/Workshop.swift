@@ -27,7 +27,6 @@ struct CarVistaApp: App {
                 }
                 .sheet(isPresented: $updates.showPrompt) {
                     NavigationStack { AppUpdateView(prompted: true) }
-                        .interactiveDismissDisabled(updates.required)
                 }
         }
     }

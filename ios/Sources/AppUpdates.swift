@@ -40,6 +40,11 @@ final class AppUpdates: ObservableObject {
         didSet { UserDefaults.standard.set(includeBeta, forKey: "CarVistaBetaUpdates") }
     }
     private var lastAutomaticCheck = Date.distantPast
+    private let promptedReleasesKey = "CarVistaPromptedReleases"
+
+    func postponeUpdate() {
+        showPrompt = false
+    }
 
     func check(automatically: Bool = false) async {
         guard ServiceGate.enabled, !checking else { return }
@@ -75,7 +80,16 @@ final class AppUpdates: ObservableObject {
                 }
                 release = next
                 required = result.required
-                if automatically { showPrompt = true }
+                if automatically {
+                    let key = "\(next.id):\(next.build)"
+                    var prompted = Set(UserDefaults.standard.stringArray(forKey: promptedReleasesKey) ?? [])
+                    if prompted.insert(key).inserted {
+                        // Persist before presenting: later, swipe dismissal and
+                        // relaunch must all leave this release acknowledged.
+                        UserDefaults.standard.set(Array(prompted), forKey: promptedReleasesKey)
+                        showPrompt = true
+                    }
+                }
             } else {
                 release = nil
                 required = false
@@ -145,8 +159,7 @@ struct AppUpdateView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { if !prompted { await updates.check() } }
         .toolbar {
-            if prompted && !updates.required { ToolbarItem(placement: .confirmationAction) { Button("稍后") { updates.showPrompt = false } } }
+            if prompted { ToolbarItem(placement: .confirmationAction) { Button("稍后") { updates.postponeUpdate() } } }
         }
-        .interactiveDismissDisabled(updates.required)
     }
 }
