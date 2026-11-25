@@ -15,12 +15,17 @@ jobs:
         working-directory: ios
         run: |
           set -euo pipefail
+          # Each workflow run gets a higher build; reruns use the next slot.
+          test "$GITHUB_RUN_ATTEMPT" -lt 100
+          build_number=$((1000 + GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))
+          echo "Building CarVista with Build $build_number"
           xcodebuild -version
           xcodegen generate
           xcodebuild -project CarVista.xcodeproj \
             -scheme CarVista -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath DerivedData \
+            CURRENT_PROJECT_VERSION="$build_number" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Package IPA for re-signing with App Group
         working-directory: ios
