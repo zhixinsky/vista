@@ -13,7 +13,7 @@ targets:
         type: folder
         buildPhase: resources
       - path: Vendor/KernelDirect/Sources/KernelDirect
-      - path: Vendor/KernelDirect/LICENSE
+      - path: Vendor/KernelDirect-LICENSE.txt
         buildPhase: resources
       - path: Vendor/WQFiles
         excludes: [LICENSE, tests]
