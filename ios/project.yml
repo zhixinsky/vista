@@ -32,7 +32,7 @@ targets:
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: '将裁剪和校色后的壁纸保存到你的相册。'
         INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
         MARKETING_VERSION: '1.1.2'
-        CURRENT_PROJECT_VERSION: '17'
+        CURRENT_PROJECT_VERSION: '98'
         CARVISTA_RELEASE_CHANNEL: stable
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES
