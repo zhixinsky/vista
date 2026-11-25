@@ -26,6 +26,7 @@ struct ComposeWallpaperView: View {
     @State private var sharedTop = Array(SharedWallpaper.saved.prefix(10))
     @State private var sharedNote = ""
     @State private var sharedBusy: String?
+    @State private var sharedDownloading = false
     @State private var sharedComments: SharedWallpaper?
     @State private var seriesEntries = GalleryCategory.savedSeriesHomeEntries(includeHidden: false)
     @State private var seriesNote = ""
@@ -66,7 +67,6 @@ struct ComposeWallpaperView: View {
     private var renderKey: String { "\(photo?.id.uuidString ?? "empty")-\(String(describing: photo?.adjustment))-\(outputLabel)" }
 
     var body: some View {
-        ScrollViewReader { scroll in
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(spacing: 14) {
@@ -77,12 +77,21 @@ struct ComposeWallpaperView: View {
                     }
                 }
                 VStack(spacing: 14) {
-                    Group {
-                        if let preview { Image(uiImage: preview).resizable().scaledToFit() }
-                        else if photos.isEmpty { Label("选择一张壁纸", systemImage: "photo.on.rectangle.angled").font(.headline).padding(.vertical, 36) }
-                        else { ProgressView("正在生成预览…").frame(height: 160) }
-                    }.frame(maxWidth: .infinity).clipShape(RoundedRectangle(cornerRadius: 18))
-                        .overlay(alignment: .topTrailing) { if previewing && preview != nil { ProgressView().padding(12).background(.regularMaterial, in: Capsule()) } }
+                    ZoomableWallpaperPreview(image: preview, resetID: photo?.id)
+                        .overlay {
+                            if photos.isEmpty {
+                                Label("选择一张壁纸", systemImage: "photo.on.rectangle.angled")
+                                    .font(.headline).frame(maxWidth: .infinity, maxHeight: .infinity)
+                                    .background(cardColor)
+                            }
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            if previewing && preview != nil { ProgressView().padding(12).background(.regularMaterial, in: Capsule()).allowsHitTesting(false) }
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("当前壁纸预览")
+                        .accessibilityIdentifier("maker.preview")
                     if photos.count > 1 {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 10) {
@@ -117,7 +126,7 @@ struct ComposeWallpaperView: View {
                                 }.buttonStyle(.bordered).disabled(locked)
                                     .accessibilityIdentifier("maker.adjust")
                                 Button { prepareShare() } label: {
-                                    Text(shared ? "已共享" : "分享").font(.system(size: 15, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
+                                    Text(shared ? "已共享" : "共享").font(.system(size: 15, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7).frame(maxWidth: .infinity)
                                 }.buttonStyle(.bordered).disabled(locked || shared)
                                     .accessibilityIdentifier("wallpaper.share")
                                 if model.photoDownloadUnlocked {
@@ -160,11 +169,10 @@ struct ComposeWallpaperView: View {
                             if let openGallery { Button("在线图库", action: openGallery).buttonStyle(.bordered) }
                         }.controlSize(.small)
                     }
-                    if loading { ProgressView("正在导入照片…") }
                     if let problem { Text(problem).font(.subheadline).foregroundStyle(.red) }
                 }.padding(16).frame(maxWidth: .infinity)
                     .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
-                    .id("currentWallpaper")
+                    .allowsHitTesting(sharedBusy == nil)
 
                 VStack(alignment: .leading, spacing: 12) {
                     Button { openShared?() } label: {
@@ -174,12 +182,7 @@ struct ComposeWallpaperView: View {
                             Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
                         }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(openShared == nil).accessibilityIdentifier("wallpaper.shared")
-                    if sharedBusy != nil {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("正在下载原图，请稍候").font(.caption.weight(.semibold))
-                        }
-                    } else if !sharedNote.isEmpty {
+                    if !sharedNote.isEmpty {
                         Text(sharedNote).font(.caption).foregroundStyle(.secondary)
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -190,26 +193,38 @@ struct ComposeWallpaperView: View {
                                         GalleryImage(url: item.previewURL, mode: .fill)
                                             .frame(width: 160, height: 90)
                                             .clipShape(RoundedRectangle(cornerRadius: 10))
-                                            .overlay(alignment: .topLeading) {
-                                                if item.pinned == true {
-                                                    Text("置顶").font(.system(size: 11, weight: .medium))
-                                                        .foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 5)
-                                                        .background(.black.opacity(0.58), in: Capsule()).padding(8)
-                                                        .allowsHitTesting(false)
+                            .overlay(alignment: .topLeading) {
+                                if item.pinned == true {
+                                    Text("置顶").font(.system(size: 11, weight: .medium))
+                                        .foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 5)
+                                        .background(.black.opacity(0.58), in: Capsule()).padding(10)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                                            .overlay {
+                                                if sharedBusy == item.id && sharedDownloading {
+                                                    ZStack {
+                                                        Color.black.opacity(0.4)
+                                                        VStack(spacing: 6) {
+                                                            ProgressView().tint(.white)
+                                                            Text("正在下载中").font(.caption.weight(.semibold)).foregroundStyle(.white)
+                                                        }
+                                                    }.allowsHitTesting(false)
                                                 }
                                             }
-                                            .overlay {
-                                                if sharedBusy == item.id { WallpaperDownloadCover() }
-                                            }
-                                    }.buttonStyle(.plain)
-                                        .disabled(locked || sharedBusy != nil)
+                                            .contentShape(Rectangle())
+                                    }.frame(width: 160, height: 90)
+                                        .contentShape(Rectangle())
+                                        .buttonStyle(.plain)
+                                        .disabled(locked)
+                                        .allowsHitTesting(sharedBusy == nil)
                                         .accessibilityLabel("导入\(item.title)")
                                     Text(item.title).font(.caption).lineLimit(1)
                                     HStack {
                                         Label("\(item.likes)", systemImage: "heart").font(.caption2)
                                         Button { sharedComments = item } label: {
                                             Label("\(item.comments ?? 0)", systemImage: "bubble.left").font(.caption2)
-                                        }.buttonStyle(.plain).accessibilityLabel("查看评论")
+                                        }.buttonStyle(.plain).allowsHitTesting(sharedBusy == nil).accessibilityLabel("查看评论")
                                         Spacer(minLength: 0)
                                     }
                                 }.frame(width: 160)
@@ -260,45 +275,14 @@ struct ComposeWallpaperView: View {
                     }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
                         .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
                 }
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("CarPlay").font(.headline)
-                    if model.group.isEmpty {
-                        Label("未检测到签名组，请检查证书", systemImage: "exclamationmark.shield")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(red: 0.78, green: 0.16, blue: 0.18), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    } else {
-                        Label("签名组已提供", systemImage: "checkmark.shield")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(Color(red: 0.11, green: 0.13, blue: 0.16), in: Capsule())
-                    }
-                    HStack {
-                        Button("检测车机壁纸") { model.scan(deep: false) }.disabled(locked || model.group.isEmpty)
-                        Spacer()
-                        WallpaperRefreshButton().buttonStyle(.bordered)
-                    }
-                    if !model.targets.isEmpty { Text("已找到 \(model.targets.count) 个缓存文件").font(.caption).foregroundStyle(.secondary) }
-                    if model.busy { ProgressView("正在处理…") }
-                    Text(model.message).font(.caption).foregroundStyle(.secondary)
-                }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(cardColor, in: RoundedRectangle(cornerRadius: 24))
+                CarPlayStatusCard()
             }.padding(20).frame(maxWidth: 680).frame(maxWidth: .infinity)
         }.background(Color(uiColor: .systemGroupedBackground)).tint(CanvasTheme.accent)
-            .onChange(of: photo?.id) { _, id in
-                if id != nil { withAnimation { scroll.scrollTo("currentWallpaper", anchor: .top) } }
-            }
-        }
             .navigationTitle("壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Menu {
-                        Button { showTool(.history) } label: { Label("历史记录", systemImage: "clock") }
+                        Button { showTool(.history) } label: { Label("我的壁纸", systemImage: "photo.stack") }
                         Button { showTool(.cache) } label: { Label("壁纸缓存", systemImage: "folder") }
                     } label: {
                         Label("壁纸工具", systemImage: "ellipsis.circle")
@@ -442,18 +426,24 @@ struct ComposeWallpaperView: View {
     private func importShared(_ item: SharedWallpaper) {
         guard !locked, sharedBusy == nil else { return }
         sharedBusy = item.id
+        sharedDownloading = CatalogLibrary.savedImage(item.originalURL) == nil
         problem = nil
         Task {
-            defer { sharedBusy = nil }
+            defer { sharedBusy = nil; sharedDownloading = false }
             do {
-                let (data, response) = try await URLSession.shared.data(from: item.originalURL)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else {
-                    problem = "无法下载这张壁纸。"
+                let data = try await CatalogLibrary.cachedOriginalData(item.originalURL)
+                sharedDownloading = false
+                var incoming = try await Task.detached(priority: .userInitiated) { try MakerDraft.importPhoto(data: data) }.value
+                incoming.sourceName = "精选壁纸"
+                incoming.remoteSource = "share"
+                incoming.remoteAssetID = item.id
+                guard !Task.isCancelled else {
+                    try? FileManager.default.removeItem(at: incoming.url)
                     return
                 }
-                galleryImport = GalleryImport(data: data, source: "share", assetID: item.id)
+                try replaceCurrent(with: incoming)
             } catch {
-                problem = "无法下载这张壁纸。"
+                problem = "载入壁纸失败，请重试。"
             }
         }
     }

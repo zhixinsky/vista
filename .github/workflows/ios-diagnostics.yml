@@ -28,6 +28,8 @@ jobs:
           set -euo pipefail
           app='DerivedData/Build/Products/Release-iphoneos/CarVista.app'
           test -f "$app/CarVista"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CarVistaBackendAPIVersion' "$app/Info.plist")" = '2'
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CarVistaUpdateBundleID' "$app/Info.plist")" = 'local.carvista'
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName' "$app/Info.plist"
           test -d "$app/LaunchScreen.storyboardc"

@@ -161,7 +161,7 @@ actor ServiceClient {
 
     func shareMetadata(_ id: UUID) async -> ShareMetadata? {
         guard let token = await ensureToken() else { return nil }
-        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString)/metadata"), timeoutInterval: 20)
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString.lowercased())/metadata"), timeoutInterval: 20)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -170,9 +170,76 @@ actor ServiceClient {
         } catch { return nil }
     }
 
+    struct WallpaperCodeManifest: Decodable {
+        let author: String?
+        struct Entry: Decodable { let mode: String; let bytes: Int; let sha256: String }
+        let title: String
+        let expires_at: Double
+        let entries: [Entry]
+    }
+    struct WallpaperCodeCreated: Decodable { let code: String; let expires_at: Double }
+
+    func createWallpaperCode(entries: [SavedWallpaper], title: String) async throws -> WallpaperCodeCreated {
+        guard let token = await ensureToken(), entries.count == 1 else { throw URLError(.userAuthenticationRequired) }
+        let boundary = "CarVista\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var body = Data()
+        func field(_ key: String, _ value: String) {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(key)\"\r\n\r\n\(value)\r\n".utf8))
+        }
+        field("title", title)
+        field("source_id", entries[0].id.uuidString.lowercased())
+        field("modes", String(data: try JSONEncoder().encode(entries.map(\.mode)), encoding: .utf8)!)
+        for (index, entry) in entries.enumerated() {
+            let data = try Data(contentsOf: entry.bitmap)
+            guard !data.isEmpty, data.count <= 45 * 1024 * 1024 else { throw URLError(.dataLengthExceedsMaximum) }
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\(index)\"; filename=\"wallpaper.cpbitmap\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8))
+            body.append(data); body.append(Data("\r\n".utf8))
+        }
+        body.append(Data("--\(boundary)--\r\n".utf8))
+        var request = URLRequest(url: Self.endpoint("v1/wallpaper-codes"), timeoutInterval: 120)
+        request.httpMethod = "POST"; request.httpBody = body
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+        return try JSONDecoder().decode(WallpaperCodeCreated.self, from: data)
+    }
+    func wallpaperCode(_ code: String) async throws -> WallpaperCodeManifest {
+        let (data, response) = try await URLSession.shared.data(from: Self.endpoint("v1/wallpaper-codes/\(code)"))
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+        return try JSONDecoder().decode(WallpaperCodeManifest.self, from: data)
+    }
+    func wallpaperCodeFile(_ code: String, index: Int) async throws -> Data {
+        let (data, response) = try await URLSession.shared.data(from: Self.endpoint("v1/wallpaper-codes/\(code)/files/\(index)"))
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), data.count <= 45 * 1024 * 1024 else { throw URLError(.badServerResponse) }
+        return data
+    }
+    func revokeWallpaperCode(_ code: String) async throws {
+        guard let token = await ensureToken() else { throw URLError(.userAuthenticationRequired) }
+        var request = URLRequest(url: Self.endpoint("v1/wallpaper-codes/\(code)"))
+        request.httpMethod = "DELETE"; request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { throw URLError(.badServerResponse) }
+    }
+
+    func removeShare(_ id: UUID) async -> Bool {
+        guard let token = await ensureToken() else { return false }
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString.lowercased())"), timeoutInterval: 20)
+        request.httpMethod = "DELETE"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return false }
+            var ids = Set(UserDefaults.standard.string(forKey: "CarVistaSharedHistory")?.split(separator: "|").map(String.init) ?? [])
+            ids.remove(id.uuidString)
+            UserDefaults.standard.set(ids.sorted().joined(separator: "|"), forKey: "CarVistaSharedHistory")
+            return true
+        } catch { return false }
+    }
+
     func updateShare(_ id: UUID, title: String, description: String, author: String = "") async -> Bool {
         guard let token = await ensureToken() else { return false }
-        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString)/metadata"), timeoutInterval: 20)
+        var request = URLRequest(url: Self.endpoint("v1/shares/\(id.uuidString.lowercased())/metadata"), timeoutInterval: 20)
         request.httpMethod = "PATCH"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")

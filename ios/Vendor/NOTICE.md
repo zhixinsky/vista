@@ -16,3 +16,11 @@ NeoSpring WebKit document in Sources/RespringDocument.swift is adapted from
 https://github.com/frs0n/placard/blob/7f470dd0242f9d69ea5ad17e521566487706c891/placard/NeoSpringView.swift
 under GPL-3.0 (full license: ios/LICENSE). Credits: rooootdev, skadz108, neonmodder123.
 Local lifecycle wrapper adds explicit triggering, timeout, background cleanup, and simulator exclusion.
+
+
+## KernelDirect (iOS 17 experimental backend)
+Source: https://github.com/soci-art/Drift/tree/60cae0235b88c835976207eeaffdae9e7f578f5b/KernelDirect
+Pinned revision: 60cae0235b88c835976207eeaffdae9e7f578f5b.
+Upstream attribution: QuinnTang74/3106, ThreeOneOSSix/kexploit.
+License: GPL-3.0; see KernelDirect/LICENSE. Imported module files are unchanged.
+CarVista integration is in Sources/CCKernelSession.m. No Drift Swift application code is copied.

@@ -19,6 +19,23 @@ struct WallpaperColorView: View {
     @State private var selectedSection: ColorSection = .region
     var resetToken: Int = 0
 
+    private static var neutralEdge: WallpaperLeftEdgeBlend {
+        var edge = WallpaperLeftEdgeBlend()
+        edge.brightness = 0
+        edge.saturation = 0
+        return edge
+    }
+    private static var neutralMask: WallpaperMaskCompensation {
+        var mask = WallpaperMaskCompensation()
+        mask.opacity = 0
+        return mask
+    }
+    private static var neutralAdvanced: WallpaperAdvancedGrade {
+        var grade = WallpaperAdvancedGrade()
+        grade.protectHighlights = false
+        return grade
+    }
+
     private enum ColorSection: String, CaseIterable {
         case region = "区域调节"
         case overall = "整体调节"
@@ -32,9 +49,9 @@ struct WallpaperColorView: View {
         var initialColor = photo.adjustment.color ?? .init()
         initialColor.leftEdge?.advanced?.local = true
         _adjustment = State(initialValue: initialColor)
-        _savedEdge = State(initialValue: photo.adjustment.color?.leftEdge ?? .init())
-        _savedMask = State(initialValue: photo.adjustment.color?.mask ?? .init())
-        var initialAdvanced = photo.adjustment.color?.leftEdge?.advanced ?? .init()
+        _savedEdge = State(initialValue: photo.adjustment.color?.leftEdge ?? Self.neutralEdge)
+        _savedMask = State(initialValue: photo.adjustment.color?.mask ?? Self.neutralMask)
+        var initialAdvanced = photo.adjustment.color?.leftEdge?.advanced ?? Self.neutralAdvanced
         initialAdvanced.local = true
         _savedAdvanced = State(initialValue: initialAdvanced)
     }
@@ -80,17 +97,18 @@ struct WallpaperColorView: View {
     }
 
     private var previewPanel: some View {
-        VStack(spacing: 14) {
-            if embedded {
-                Text("请先裁剪，再调色")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        VStack(spacing: embedded ? 0 : 14) {
             Group {
                 if let image = showOriginal ? original : (corrected ?? original) {
-                    Image(uiImage: image).resizable().scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: embedded ? .infinity : 210)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                    GeometryReader { geometry in
+                        let viewportRatio = geometry.size.width / max(geometry.size.height, 1)
+                        ZoomableWallpaperPreview(image: image, resetID: photo.id,
+                            aspectRatio: viewportRatio, cornerRadius: 0, fitInside: true)
+                            .frame(width: geometry.size.width, height: geometry.size.height)
+                            .clipped()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: embedded ? .infinity : 210)
+                    .frame(minHeight: embedded ? 120 : 210)
                 } else if problem == nil {
                     ProgressView("正在准备预览…")
                 }
@@ -102,10 +120,12 @@ struct WallpaperColorView: View {
             .pickerStyle(.segmented)
             .frame(maxWidth: 280)
             .disabled(original == nil)
+            .padding(.horizontal, embedded ? 12 : 0)
+            .padding(.vertical, embedded ? 8 : 0)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, maxHeight: embedded ? .infinity : nil)
+        .padding(.horizontal, embedded ? 0 : 20)
+        .padding(.vertical, embedded ? 0 : 16)
         .background(Color(uiColor: .systemGray6))
     }
 
@@ -237,10 +257,13 @@ struct WallpaperColorView: View {
     }
 
     private func resetAll() {
-        adjustment = .init()
-        savedEdge = .init()
-        savedMask = .init()
-        savedAdvanced = .init()
+        var reset = WallpaperColorAdjustment()
+        reset.leftEdge = Self.neutralEdge
+        reset.mask = Self.neutralMask
+        adjustment = reset
+        savedEdge = Self.neutralEdge
+        savedMask = Self.neutralMask
+        savedAdvanced = Self.neutralAdvanced
         showOverallMore = false
         showRegionMore = false
         showOriginal = false

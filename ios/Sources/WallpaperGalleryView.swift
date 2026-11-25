@@ -263,6 +263,8 @@ private struct BingWallpaperGalleryView: View {
                 selection = nil
                 use(pick)
             }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -319,7 +321,7 @@ private struct BingWallpaperDetail: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    GalleryImage(url: item.imageURL(), mode: .fit).aspectRatio(16 / 9, contentMode: .fit)
+                    RemoteWallpaperPreview(url: item.imageURL())
                     Text(item.name).font(.headline)
                     if let credit = item.copyright { Text(credit).font(.caption).foregroundStyle(.secondary) }
                     Button(downloading ? "正在下载…" : "用作壁纸") { download() }
@@ -373,7 +375,16 @@ struct GalleryImage: View {
         }
         Group {
             if backed {
-                Rectangle().fill(.quaternary).overlay { content }.clipped()
+                Rectangle().fill(.quaternary)
+                    .overlay {
+                        GeometryReader { geometry in
+                            content.frame(width: geometry.size.width, height: geometry.size.height)
+                                .clipped()
+                        }
+                        .allowsHitTesting(false)
+                    }
+                    .clipped()
+                    .contentShape(Rectangle())
             } else {
                 content.frame(maxWidth: .infinity, minHeight: image == nil ? 92 : 0)
             }

@@ -4,6 +4,7 @@ import PhotosUI
 import ImageIO
 import Network
 import Security
+import CryptoKit
 
 @main
 struct CarVistaApp: App {
@@ -48,6 +49,33 @@ struct WallpaperTarget: Identifiable {
 @MainActor
 final class WorkshopModel: ObservableObject {
     @Published var targets: [WallpaperTarget] = []
+    @Published var selfCheckResult: [String: Any]?
+    @Published var selfCheckDate: Date?
+    @Published var selfChecking = false
+
+    func runSelfCheck() {
+        guard !busy, !selfChecking else { return }
+        selfChecking = true
+        selfCheckResult = nil
+        let started = ProcessInfo.processInfo.systemUptime
+        work({ CCEngine.selfCheck() as? [String: Any] ?? [:] }) { result in
+            let remaining = max(0, 3.0 - (ProcessInfo.processInfo.systemUptime - started))
+            DispatchQueue.main.asyncAfter(deadline: .now() + remaining) {
+                self.selfCheckResult = result
+                self.selfCheckDate = Date()
+                self.selfChecking = false
+                self.targets = (result["files"] as? [[String: Any]] ?? []).map { WallpaperTarget(raw: $0) }
+                self.root = result["root"] as? String ?? ""
+                self.issues = result["issues"] as? [String] ?? []
+                self.message = result["message"] as? String ?? "自检未返回说明，请导出诊断报告。"
+                if result["ok"] as? Bool == true {
+                    self.lastCacheMaintenance = nil
+                    self.maintainCacheSilently()
+                }
+            }
+        }
+    }
+
     @Published var lastRepairSummary = ""
     @Published var history: [SavedWallpaper] = []
     @Published var backups: [[String: Any]] = []
@@ -67,6 +95,32 @@ final class WorkshopModel: ObservableObject {
     @Published private(set) var lastApplySummary: String?
     @Published private(set) var lastUnlockSummary: String?
     let group = CCEngine.appGroup()
+    var kernelBackendCandidate: Bool {
+        CarPlayCompatibility.candidateBackend(version: UIDevice.current.systemVersion,
+            build: ServiceClient.systemBuild, machine: ServiceClient.machine) == .kernelDirect
+    }
+    var hasAccessBackend: Bool {
+        guard let backend = CarPlayCompatibility.candidateBackend(version: UIDevice.current.systemVersion,
+            build: ServiceClient.systemBuild, machine: ServiceClient.machine) else { return false }
+        return backend == .kernelDirect || (!group.isEmpty &&
+            FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) != nil)
+    }
+    var accessPreparationMessage: String {
+        guard let backend = CarPlayCompatibility.candidateBackend(version: UIDevice.current.systemVersion,
+            build: ServiceClient.systemBuild, machine: ServiceClient.machine) else {
+            return "当前系统或机型不在适配范围内，重新签名不会改变兼容性。"
+        }
+        if backend == .kernelDirect { return "请先运行 CarPlay 自检，确认内核会话及目标目录的实际访问状态。" }
+        if group.isEmpty { return "当前安装缺少 App Group，请使用提供 App Group 的签名方式重新安装。" }
+        return "App Group 已声明，但系统未返回对应容器，请检查签名配置。"
+    }
+    var carPlayReady: Bool {
+        guard !selfChecking, selfCheckDate != nil, selfCheckResult?["ok"] as? Bool == true,
+              hasAccessBackend, targets.count == 12, targets.allSatisfy(\.editable) else { return false }
+        let evidence = selfCheckResult?["evidence"] as? [String: Any]
+        let cache = evidence?["mappedCache"] as? [String: Any]
+        return cache?["listingSucceeded"] as? Bool == true
+    }
     var appGroupStatus: String {
         guard !group.isEmpty else { return "未声明" }
         return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) == nil
@@ -107,7 +161,7 @@ final class WorkshopModel: ObservableObject {
     func maintainCacheSilently() {
         // Share the mutation queue with scan/apply/restore. No modal, spinner,
         // published busy state for routine maintenance.
-        guard !cacheMaintenanceQueued else { return }
+        guard !cacheMaintenanceQueued, !selfChecking else { return }
         if let lastCacheMaintenance, Date().timeIntervalSince(lastCacheMaintenance) < 30 { return }
         cacheMaintenanceQueued = true
         Task {
@@ -185,7 +239,10 @@ final class WorkshopModel: ObservableObject {
     }
 
     func scan(deep: Bool) {
-        guard !busy else { return }
+        guard !busy, !selfChecking else { return }
+        guard hasAccessBackend else { message = accessPreparationMessage; return }
+        selfCheckResult = nil
+        selfCheckDate = nil
         message = deep ? "正在完整扫描容器，请保持应用在前台。首次可能需要数分钟。" : "正在定位壁纸缓存…"
         work({ CCEngine.discover(deep) as? [String: Any] ?? [:] }) { result in
             self.targets = (result["files"] as? [[String: Any]] ?? []).map { WallpaperTarget(raw: $0) }
@@ -231,6 +288,101 @@ final class WorkshopModel: ObservableObject {
         }
     }
 
+    func importSharedCode(_ code: String, manifest: ServiceClient.WallpaperCodeManifest, completion: @escaping (String) -> Void) {
+        guard !busy else { return }
+        busy = true
+        Task {
+            do {
+                guard manifest.entries.count == 1 else { throw URLError(.cannotDecodeContentData) }
+                var payloads: [Data] = []
+                for (index, item) in manifest.entries.enumerated() {
+                    let data = try await ServiceClient.shared.wallpaperCodeFile(code, index: index)
+                    let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+                    guard data.count == item.bytes, digest == item.sha256 else { throw URLError(.cannotDecodeContentData) }
+                    payloads.append(data)
+                }
+                busy = false
+                work({
+                    var entries: [SavedWallpaper] = []
+                    var paths: [URL] = []
+                    let batch = UUID()
+                    do {
+                        for (index, data) in payloads.enumerated() {
+                            guard let image = CCEngine.decodeBitmap(data), let cg = image.cgImage,
+                                  WallpaperStorage.validSize(width: cg.width, height: cg.height),
+                                  let jpg = image.jpegData(compressionQuality: 0.85), let png = image.pngData() else { throw URLError(.cannotDecodeContentData) }
+                            let entry = SavedWallpaper(id: UUID(), created: Date(), width: cg.width, height: cg.height,
+                                mode: "导入", batchID: batch, customName: manifest.title, preservePixels: true,
+                                sharedAuthor: manifest.author?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? manifest.author : "车友")
+                            let metadata = Self.library.appendingPathComponent("\(entry.id).json")
+                            paths += [entry.bitmap, entry.preview, entry.originalImage, metadata]
+                            try data.write(to: entry.bitmap, options: .atomic)
+                            try jpg.write(to: entry.preview, options: .atomic)
+                            try png.write(to: entry.originalImage, options: .atomic)
+                            try JSONEncoder().encode(entry).write(to: metadata, options: .atomic)
+                            entries.append(entry)
+                        }
+                        return ["entries": entries]
+                    } catch {
+                        for path in paths { try? FileManager.default.removeItem(at: path) }
+                        return ["error": error.localizedDescription]
+                    }
+                }) { result in
+                    let entries = result["entries"] as? [SavedWallpaper] ?? []
+                    self.history.insert(contentsOf: entries, at: 0)
+                    completion(entries.isEmpty ? "导入失败，请重试。" : "已保存到我的壁纸。")
+                }
+            } catch {
+                busy = false
+                completion("下载或校验失败，请检查分享码和网络。")
+            }
+        }
+    }
+
+    func importBitmaps(_ urls: [URL], completion: @escaping (String) -> Void) {
+        guard !busy, !urls.isEmpty else { return }
+        work({
+            var entries: [SavedWallpaper] = []
+            var errors: [String] = []
+            for url in urls {
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard url.pathExtension.lowercased() == "cpbitmap" else { errors.append("\(url.lastPathComponent)：文件类型不正确"); continue }
+                do {
+                    let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+                    guard values.isRegularFile == true, let size = values.fileSize, size > 0, size <= 100_000_000 else {
+                        errors.append("\(url.lastPathComponent)：文件无效或超过 100 MB"); continue
+                    }
+                    let data = try Data(contentsOf: url)
+                    guard data.count == size, let image = CCEngine.decodeBitmap(data), let cg = image.cgImage,
+                          WallpaperStorage.validSize(width: cg.width, height: cg.height),
+                          let jpg = image.jpegData(compressionQuality: 0.85), let png = image.pngData() else {
+                        errors.append("\(url.lastPathComponent)：无法解码"); continue
+                    }
+                    let entry = SavedWallpaper(id: UUID(), created: Date(), width: cg.width, height: cg.height,
+                        mode: "导入", customName: url.deletingPathExtension().lastPathComponent, preservePixels: true)
+                    let metadata = Self.library.appendingPathComponent("\(entry.id).json")
+                    do {
+                        try data.write(to: entry.bitmap, options: .atomic)
+                        try jpg.write(to: entry.preview, options: .atomic)
+                        try png.write(to: entry.originalImage, options: .atomic)
+                        try JSONEncoder().encode(entry).write(to: metadata, options: .atomic)
+                        entries.append(entry)
+                    } catch {
+                        for file in [entry.bitmap, entry.preview, entry.originalImage, metadata] { try? FileManager.default.removeItem(at: file) }
+                        throw error
+                    }
+                } catch { errors.append("\(url.lastPathComponent)：\(error.localizedDescription)") }
+            }
+            return ["entries": entries, "errors": errors]
+        }) { result in
+            let entries = result["entries"] as? [SavedWallpaper] ?? []
+            let errors = result["errors"] as? [String] ?? []
+            self.history.insert(contentsOf: entries.reversed(), at: 0)
+            completion("已导入 \(entries.count) 个文件。" + (errors.isEmpty ? "" : "\n" + errors.joined(separator: "\n")))
+        }
+    }
+
     func unlockWallpapers() {
         guard !busy else { return }
         message = "正在解除壁纸锁定…"
@@ -261,6 +413,12 @@ final class WorkshopModel: ObservableObject {
     }
 
     func apply(entry: SavedWallpaper, target: WallpaperTarget) {
+        guard !busy, !selfChecking else { return }
+        guard hasAccessBackend else { message = accessPreparationMessage; return }
+        guard target.editable, targets.contains(where: { $0.id == target.id && $0.editable }) else {
+            message = "所选缓存已失效，请重新查找后再应用。"
+            return
+        }
         message = "正在备份、写入并校验…"
         work({
             let backup = CCEngine.saveSnapshot([target.raw]) as? [String: Any] ?? [:]
@@ -323,6 +481,7 @@ final class WorkshopModel: ObservableObject {
                 "appGroup": group, "root": root, "message": message, "issues": issues,
                 "targets": targets.map(\.raw), "log": CCEngine.logs(),
                 "wallpaperFileHistory": CCEngine.wallpaperDiagnosticHistory(),
+                "selfCheck": selfCheckResult ?? [:],
                 "appVersion": appVersion, "appGroupStatus": appGroupStatus,
                 "lastScan": lastScanSummary ?? "本次启动尚未查找",
                 "lastApply": lastApplySummary ?? "本次启动尚未应用"]
@@ -523,9 +682,9 @@ struct WorkshopView: View {
                             ProgressView()
                             Button("停止完整扫描") { CCEngine.cancelScan() }
                         }
-                        Button("查找 / 刷新车机壁纸") { model.scan(deep: false) }.disabled(model.busy || model.group.isEmpty)
-                        Button("首次完整扫描") { deepScan = true }.disabled(model.busy || model.group.isEmpty)
-                        if model.group.isEmpty { Text("缺少 App Group 权限，请重新签名安装。详见使用说明。").foregroundStyle(.red) }
+                        Button("查找 / 刷新车机壁纸") { model.scan(deep: false) }.disabled(model.busy || !model.hasAccessBackend)
+                        Button("首次完整扫描") { deepScan = true }.disabled(model.busy || !model.hasAccessBackend)
+                        if !model.hasAccessBackend { Text(model.accessPreparationMessage).foregroundStyle(.red) }
                     }
                     Section("选择要替换的壁纸") {
                         if model.targets.isEmpty { Text("扫描后显示实际缓存文件。深色与浅色需要分别选择和应用。").foregroundStyle(.secondary) }
@@ -711,7 +870,7 @@ struct HelpView: View {
                 diagnosticRow("最近应用", result: model.lastApplySummary ?? "本次启动尚未应用")
                 diagnosticRow("最近解锁", result: model.lastUnlockSummary ?? "本次启动尚未解锁")
                 Button("解锁壁纸") { unlockConfirm = true }
-                    .disabled(model.busy || model.group.isEmpty)
+                    .disabled(model.busy || !model.hasAccessBackend)
             } header: {
                 Text("诊断摘要")
             } footer: {

@@ -121,11 +121,11 @@ struct SharedWallpaperGalleryView: View {
                                     .allowsHitTesting(false)
                             }
                             .overlay {
-                                if busyID == item.id { WallpaperDownloadCover() }
+                                if busyID == item.id { WallpaperDownloadCover().allowsHitTesting(false) }
                             }
+                            .contentShape(Rectangle())
                         }
-                        .frame(height: 125)
-                        .contentShape(Rectangle())
+                        .frame(maxWidth: .infinity).frame(height: 125)
                         .buttonStyle(.plain).disabled(busyID != nil || model.busy)
                             .accessibilityLabel("查看\(item.title)")
                         HStack(alignment: .center, spacing: 3) {
@@ -182,8 +182,10 @@ struct SharedWallpaperGalleryView: View {
         .refreshable { await reload() }
         if busyID != nil { WallpaperDownloadBanner() }
         }
-        .fullScreenCover(item: $previewItem) { item in
+        .sheet(item: $previewItem, onDismiss: { Task { await reload() } }) { item in
             SharedWallpaperPreview(item: item, use: use)
+                .presentationDetents([.fraction(0.75), .large])
+                .presentationDragIndicator(.visible)
         }
         .sheet(item: $commentItem, onDismiss: { Task { await reload() } }) { item in
             ShareCommentsView(item: item)
@@ -225,11 +227,7 @@ struct SharedWallpaperGalleryView: View {
         Task {
             defer { busyID = nil }
             do {
-                let (data, response) = try await URLSession.shared.data(from: item.originalURL)
-                guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode), !data.isEmpty else {
-                    note = "无法下载这张壁纸。"
-                    return
-                }
+                let data = try await CatalogLibrary.cachedOriginalData(item.originalURL)
                 use(GalleryPick(data: data, source: "share", assetID: item.id))
             } catch {
                 note = "无法下载这张壁纸。"
@@ -243,59 +241,106 @@ private struct SharedWallpaperPreview: View {
     @Environment(\.dismiss) private var dismiss
     let item: SharedWallpaper
     let use: (GalleryPick) -> Void
-    @State private var image: UIImage?
     @State private var imageData: Data?
     @State private var loading = false
     @State private var failed = false
-    @State private var zoom: CGFloat = 1
-    @GestureState private var gestureZoom: CGFloat = 1
+    @State private var comments: [ShareComment] = []
+    @State private var hasMore = false
+    @State private var commentsLoading = false
+    @State private var sending = false
+    @State private var draft = ""
+    @State private var draftID = UUID()
+    @State private var commentNote = ""
+    private var bodyText: String { draft.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     var body: some View {
         NavigationStack {
-            GeometryReader { geometry in
-                ScrollView([.horizontal, .vertical]) {
-                    Group {
-                        if let image {
-                            Image(uiImage: image).resizable().scaledToFit()
-                        } else if failed {
-                            VStack(spacing: 12) {
-                                Text("图片加载失败")
-                                Button("重试") { Task { await load() } }
-                            }.foregroundStyle(.secondary)
-                        } else { ProgressView("正在加载图片…") }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    RemoteWallpaperPreview(url: item.previewURL)
+                    Text(item.title).font(.headline)
+                    Text("作者：" + ((item.author?.isEmpty == false ? item.author : nil) ?? "车友"))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    if !item.intro.isEmpty { Text(item.intro).font(.subheadline).textSelection(.enabled) }
+                    Button(loading ? "正在载入…" : "用作壁纸") { Task { await selectWallpaper() } }
+                        .buttonStyle(.borderedProminent).disabled(loading || sending)
+                    if failed { Text("壁纸载入失败，请重试。").font(.footnote).foregroundStyle(.red) }
+                    Divider()
+                    Text("评论").font(.headline)
+                    if comments.isEmpty && !commentsLoading && commentNote.isEmpty {
+                        Text("还没有评论，聊聊这张壁纸吧。").font(.subheadline).foregroundStyle(.secondary)
                     }
-                    .frame(width: geometry.size.width * max(1, min(5, zoom * gestureZoom)),
-                           height: geometry.size.height * max(1, min(5, zoom * gestureZoom)))
-                }
-                .simultaneousGesture(MagnificationGesture()
-                    .updating($gestureZoom) { value, state, _ in state = value }
-                    .onEnded { zoom = max(1, min(5, zoom * $0)) })
-                .onTapGesture(count: 2) { withAnimation { zoom = zoom > 1 ? 1 : 2 } }
+                    ForEach(comments) { comment in
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack {
+                                Text(comment.author).font(.subheadline.weight(.medium))
+                                Spacer()
+                                Text(comment.created_at.replacingOccurrences(of: "T", with: " ").prefix(16)).font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Text(comment.body).font(.subheadline).textSelection(.enabled)
+                        }.padding(.vertical, 5)
+                    }
+                    if commentsLoading { ProgressView("正在读取评论…") }
+                    if hasMore { Button("查看更多评论") { Task { await loadComments(reset: false) } }.disabled(commentsLoading || sending) }
+                    if !commentNote.isEmpty {
+                        Text(commentNote).font(.footnote).foregroundStyle(.secondary)
+                        Button("重新加载评论") { Task { await loadComments(reset: true) } }.disabled(commentsLoading || sending)
+                    }
+                    TextField("写下你的评论…", text: $draft, axis: .vertical)
+                        .lineLimit(2...4).padding(12)
+                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                        .disabled(sending)
+                    HStack {
+                        Text("\(bodyText.count)/500").font(.caption).foregroundStyle(bodyText.count > 500 ? .red : .secondary)
+                        Spacer()
+                        Button(sending ? "发送中…" : "发送") { Task { await sendComment() } }
+                            .buttonStyle(.borderedProminent).disabled(sending || commentsLoading || bodyText.isEmpty || bodyText.count > 500)
+                    }
+                }.padding(16)
             }
-            .navigationTitle(item.title).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("关闭") { dismiss() } } }
-            .safeAreaInset(edge: .bottom) {
-                Button("选择壁纸") {
-                    guard let imageData else { return }
-                    use(GalleryPick(data: imageData, source: "share", assetID: item.id))
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent).disabled(imageData == nil || loading)
-                .padding().frame(maxWidth: .infinity).background(.regularMaterial)
-            }
-            .task { await load() }
+            .navigationTitle("精选壁纸").navigationBarTitleDisplayMode(.inline)
+            .toolbar { Button("关闭") { dismiss() }.disabled(loading || sending) }
+            .interactiveDismissDisabled(loading || sending)
+            .task { await loadComments(reset: true) }
+            .onChange(of: draft) { _, _ in draftID = UUID() }
         }
+    }
+    private func selectWallpaper() async {
+        await load()
+        guard let imageData else { return }
+        use(GalleryPick(data: imageData, source: "share", assetID: item.id))
+        dismiss()
+    }
+    private func loadComments(reset: Bool) async {
+        guard !commentsLoading else { return }
+        commentsLoading = true
+        defer { commentsLoading = false }
+        do {
+            let page = try await ServiceClient.shared.comments(item.id, offset: reset ? 0 : comments.count)
+            if reset { comments = page.items } else { comments.append(contentsOf: page.items) }
+            hasMore = page.has_more
+            commentNote = ""
+        } catch { commentNote = "评论未能加载，请重试。" }
+    }
+    private func sendComment() async {
+        guard !sending, !bodyText.isEmpty, bodyText.count <= 500 else { return }
+        sending = true
+        defer { sending = false }
+        do {
+            try await ServiceClient.shared.postComment(item.id, id: draftID, body: bodyText)
+            draft = ""
+            await loadComments(reset: true)
+        } catch { commentNote = error.localizedDescription }
     }
 
     private func load() async {
-        guard !loading else { return }
+        guard !loading, imageData == nil else { return }
         loading = true; failed = false
         defer { loading = false }
         do {
-            let (data, response) = try await URLSession.shared.data(from: item.originalURL)
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-                  let decoded = UIImage(data: data) else { failed = true; return }
-            imageData = data; image = decoded
+            let data = try await CatalogLibrary.cachedOriginalData(item.originalURL)
+            guard UIImage(data: data) != nil else { failed = true; return }
+            imageData = data
         } catch { failed = true }
     }
 }

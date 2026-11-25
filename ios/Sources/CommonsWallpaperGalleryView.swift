@@ -183,6 +183,8 @@ struct CommonsWallpaperGalleryView: View {
                 selection = nil
                 use(pick)
             }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 
@@ -242,8 +244,7 @@ private struct CommonsPhotoDetail: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    GalleryImage(url: photo.thumbnail, mode: .fit)
-                        .aspectRatio(CGFloat(photo.width) / CGFloat(photo.height), contentMode: .fit)
+                    RemoteWallpaperPreview(url: photo.thumbnail)
                     Text(photo.title).font(.headline)
                     Text("\(photo.width) × \(photo.height) 像素").font(.subheadline).foregroundStyle(.secondary)
                     if let author = photo.author, !author.isEmpty { Text("作者：\(author)").font(.caption) }

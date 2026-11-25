@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #import "CCEngine.h"
+#import "CCKernelSession.h"
 #import "WQAccess.h"
 #import <dlfcn.h>
 #import <CommonCrypto/CommonDigest.h>
@@ -254,7 +255,8 @@ static NSString *CCRootForPath(NSString *path);
     CCSetup();
     WQScanCancellation *scan = WQScanCancellation.new;
     @synchronized (CCEngine.class) { CCScan = scan; }
-    if (!wq_app_group().length) return CCFail(@"签名未提供 App Group。请用支持 App Group 的签名方式重新安装；通配符证书通常不满足要求。");
+    if ([CCKernelSession isCandidate] && ![CCKernelSession isReady]) return CCFail(@"请先运行 CarPlay 自检，建立 iOS 17/18 访问会话。");
+    if (![CCKernelSession isReady] && !wq_app_group().length) return CCFail(@"签名未提供 App Group。请用支持 App Group 的签名方式重新安装；通配符证书通常不满足要求。");
     CCAllowFullScan = allowFullScan;
     @synchronized (CCRoots) { [CCRoots removeAllObjects]; }
     NSString *remembered = [NSUserDefaults.standardUserDefaults stringForKey:@"CCContainer"];
@@ -283,7 +285,20 @@ static NSString *CCRootForPath(NSString *path);
         else [candidates addObject:canonical];
     }
     if (!candidates.count && !CCRoots.count) {
-        NSArray *containers = wq_enumerate(CCParent, 0, scan, nil);
+        NSArray *containers;
+        if ([CCKernelSession isReady]) {
+            // A prepared native-access session does not use App Group tokens.
+            NSArray *names = wq_list(CCParent, NULL);
+            NSMutableArray *nativePaths = NSMutableArray.new;
+            for (NSString *name in names) {
+                if (scan.isCancelled) break;
+                if ([[NSUUID alloc] initWithUUIDString:name])
+                    [nativePaths addObject:[CCParent stringByAppendingPathComponent:name]];
+            }
+            containers = nativePaths;
+        } else {
+            containers = wq_enumerate(CCParent, 0, scan, nil);
+        }
         wq_load_display_names();
         for (NSString *path in containers) {
             if (scan.isCancelled) break;
@@ -329,6 +344,7 @@ static NSString *CCRootForPath(NSString *path);
         : @"容器已找到，但没有可识别的 CPBitmap。请先在车机切换内置壁纸后重试；也可能是格式变化。";
     return @{@"ok":@YES, @"root":root, @"files":files, @"issues":issues, @"message":message};
 }
++ (UIImage *)decodeBitmap:(NSData *)data { return CCDecode(data); }
 + (UIImage *)preview:(NSString *)path {
     if (!CCAllowed(path)) return nil;
     return CCDecode(wq_read(path, 0, NULL));
@@ -869,6 +885,24 @@ static void CCSaveWallpaperEvidence(NSDictionary *record) {
     NSArray *names = [[fm contentsOfDirectoryAtPath:directory error:nil] sortedArrayUsingSelector:@selector(compare:)];
     for (NSUInteger i = 0; names.count > 20 && i < names.count - 20; i++) [fm removeItemAtPath:[directory stringByAppendingPathComponent:names[i]] error:nil];
 }
++ (NSDictionary *)selfCheck {
+    if ([CCKernelSession isCandidate]) {
+        NSDictionary *session = [CCKernelSession prepare];
+        if (![session[@"ok"] boolValue]) return session;
+    }
+    NSDictionary *scan = [self discover:NO];
+    NSString *root = scan[@"root"];
+    NSMutableDictionary *result = [scan mutableCopy];
+    if (root.length) result[@"evidence"] = CCWallpaperEvidence(root);
+    NSUInteger copies = 0;
+    NSDictionary *records = CCRepairRecords();
+    for (NSString *path in records) {
+        NSDictionary *record = records[path];
+        if ([record isKindOfClass:NSDictionary.class] && [record[@"root"] isEqual:root] && CCRepairData(record)) copies++;
+    }
+    result[@"validRepairCopies"] = @(copies);
+    return result;
+}
 + (NSArray *)wallpaperDiagnosticHistory {
     NSMutableArray *records = NSMutableArray.new;
     NSString *directory = CCDiagnosticDirectory();
@@ -883,7 +917,7 @@ static void CCSaveWallpaperEvidence(NSDictionary *record) {
 + (NSDictionary *)maintainWallpaperCache:(NSDictionary<NSString *, NSData *> *)defaults {
     CCSetup();
     NSString *root = [NSUserDefaults.standardUserDefaults stringForKey:@"CCContainer"];
-    if (!root.length || !wq_app_group().length || !CCRegisterRoot(root)) return @{@"ok":@NO, @"skipped":@YES};
+    if (!root.length || (![CCKernelSession isReady] && !wq_app_group().length) || !CCRegisterRoot(root)) return @{@"ok":@NO, @"skipped":@YES};
     root = CCCanonical(root);
     NSDictionary *beforeEvidence = CCWallpaperEvidence(root);
     CCSaveWallpaperEvidence(@{@"stage":@"beforeAutomaticRecovery", @"snapshot":beforeEvidence});

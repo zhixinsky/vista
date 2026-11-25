@@ -45,7 +45,7 @@ struct BuickWallpaperGalleryView: View {
             NavigationStack {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
-                        CatalogThumb(item: wallpaper).frame(maxWidth: .infinity)
+                        CatalogWallpaperPreview(item: wallpaper)
                         Text("别克大联屏用户请自行裁剪尺寸").font(.subheadline)
                         Text("导入整张原图后，回到壁纸页点「裁剪」。")
                             .font(.footnote).foregroundStyle(.secondary)
@@ -59,6 +59,8 @@ struct BuickWallpaperGalleryView: View {
                 .toolbar { Button("关闭") { selection = nil }.disabled(loading) }
                 .interactiveDismissDisabled(loading)
             }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
         }
     }
 
