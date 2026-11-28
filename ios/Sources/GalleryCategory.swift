@@ -71,16 +71,25 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
         return items
     }
 
-    /// Fills the on-disk gallery cache without presenting a loading state.
+    /// Downloads gallery lists and preview images before the gallery tab is opened.
     static func preload() async {
         let categories = await fetch() ?? cached
         let visible = categories.filter { $0.published != 0 && $0.hidden == 0 }
         for category in visible {
             switch category.kind {
-            case "share", "bing", "commons", "buick", "series":
+            case "bing", "commons":
                 continue
+            case "share":
+                guard let items = await ServiceClient.shared.fetchShares(sort: .likes) else { continue }
+                for item in items { _ = await CatalogLibrary.cachedImage(item.previewURL) }
+            case "series":
+                for entry in await fetchSeriesHomeEntries(includeHidden: false) {
+                    guard let cover = entry.cover else { continue }
+                    _ = await CatalogLibrary.cachedImage(cover)
+                }
             default:
-                _ = try? await assets(category.id)
+                guard let items = try? await assets(category.id) else { continue }
+                for item in items { _ = await CatalogLibrary.thumbnail(item) }
             }
         }
     }
