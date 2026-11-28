@@ -1518,4 +1518,8 @@ private enum NetworkCheck {
             }
             monitor.start(queue: queue)
             queue.asyncAfter(deadline: .now() + 2) {
-                finish(PathFacts(status: "未知", interface: "未知", expensive: false, constrained: fals
+                finish(PathFacts(status: "未知", interface: "未知", expensive: false, constrained: false))
+            }
+        }
+    }
+}
