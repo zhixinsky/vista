@@ -41,7 +41,7 @@ struct WallpaperTarget: Identifiable {
     var height: Int { raw["height"] as? Int ?? 0 }
     var missing: Bool { raw["missing"] as? Bool == true }
     var repairable: Bool { missing && (raw["repairable"] as? Bool == true) }
-    var editable: Bool { !missing && WallpaperStorage.validSize(width: width, height: height) }
+    var editable: Bool { !missing && !creatable && WallpaperStorage.validSize(width: width, height: height) }
     var creatable: Bool { raw["create"] as? Bool == true }
     var status: String { raw["status"] as? String ?? (editable ? "可替换" : "暂时无法读取，请重新查找") }
 }

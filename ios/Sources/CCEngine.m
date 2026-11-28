@@ -846,7 +846,7 @@ static NSString *CCSnapshotRoot(void) {
         NSString *canonical = CCCanonical(path);
         struct stat existing;
         errno = 0;
-        if (!wq_stat(canonical, &existing) && errno == ENOENT && CCCreateWallpaperDestination(canonical)) {
+        if (wq_stat(canonical, &existing) != 0 && errno == ENOENT && CCCreateWallpaperDestination(canonical)) {
             NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
             if (![source.stringByStandardizingPath hasPrefix:[documents stringByAppendingString:@"/"]]) return CCFail(@"源文件不属于本应用");
             NSData *data = [NSData dataWithContentsOfFile:source options:NSDataReadingMappedIfSafe error:nil];
