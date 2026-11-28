@@ -439,6 +439,17 @@ final class WorkshopModel: ObservableObject {
         }
     }
 
+    func clearWallpaperImages() {
+        guard !busy else { return }
+        guard hasAccessBackend else { message = accessPreparationMessage; return }
+        message = "正在清空壁纸缓存…"
+        work({ CCEngine.clearWallpaperImages() }) { result in
+            self.message = result["message"] as? String ?? "清空壁纸缓存失败"
+            self.targets = []
+            self.makeReport()
+        }
+    }
+
     func restore(_ backup: [String: Any]) {
         guard !busy, let path = backup["path"] as? String else { return }
         message = "正在恢复并校验…"
@@ -836,6 +847,7 @@ struct BackupsView: View {
     @State private var cacheAction: CacheAction = .restore
     @State private var chosen: [String: Any]?
     @State private var confirming = false
+    @State private var clearing = false
     var body: some View {
         List {
             Section {
@@ -849,7 +861,8 @@ struct BackupsView: View {
                     Text("下载默认壁纸并恢复六组深浅壁纸。")
                         .font(.footnote).foregroundStyle(.secondary)
                 } else {
-                    Text("清空后，请在车机的壁纸设置中依次设定 6 张内置壁纸，让系统重新生成手机里的缓存。")
+                    Button("清空壁纸缓存", role: .destructive) { clearing = true }.disabled(model.busy)
+                    Text("只删除 Library/Caches/MappedImageCache/com.apple.CarPlayApp.wallpaper-images 中的壁纸文件。清空后，请在车机的壁纸设置中依次设定 6 张内置壁纸，让系统重新生成缓存。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -868,6 +881,9 @@ struct BackupsView: View {
         .interactiveDismissDisabled(model.busy)
         .confirmationDialog("恢复这次应用前的壁纸？", isPresented: $confirming, titleVisibility: .visible) {
             Button("确认恢复") { if let chosen { model.restore(chosen) } }
+        }
+        .confirmationDialog("清空车机壁纸缓存？已缓存的壁纸图片会被删除。", isPresented: $clearing, titleVisibility: .visible) {
+            Button("确认清空", role: .destructive) { model.clearWallpaperImages() }
         }
     }
 }
@@ -1502,8 +1518,4 @@ private enum NetworkCheck {
             }
             monitor.start(queue: queue)
             queue.asyncAfter(deadline: .now() + 2) {
-                finish(PathFacts(status: "未知", interface: "未知", expensive: false, constrained: false))
-            }
-        }
-    }
-}
+                finish(PathFacts(status: "未知", interface: "未知", expensive: false, constrained: fals

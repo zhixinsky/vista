@@ -906,6 +906,7 @@ private struct ApplyTargetPreview: View {
 
 struct CacheBrowserView: View {
     @EnvironmentObject var model: WorkshopModel
+    @State private var previewTarget: WallpaperTarget?
     var body: some View {
         List {
             Section {
@@ -918,37 +919,60 @@ struct CacheBrowserView: View {
             }
             ForEach(targetFamilies(model.targets)) { family in
                 Section(family.title) {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        ForEach(family.targets) { target in
-                            NavigationLink { CacheDetailView(target: target) } label: {
-                                VStack(spacing: 5) {
-                                    ApplyTargetPreview(target: target)
-                                        .overlay(alignment: .topTrailing) {
-                                            if target.width > 0 && target.height > 0 {
-                                                Text("\(target.width) × \(target.height)")
-                                                    .font(.caption2.weight(.medium))
-                                                    .foregroundStyle(.white)
-                                                    .padding(.horizontal, 6)
-                                                    .padding(.vertical, 3)
-                                                    .background(.black.opacity(0.72), in: Capsule())
-                                                    .padding(5)
-                                            }
-                                        }
-                                    Text(target.mode)
-                                        .font(.caption.weight(.medium))
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(model.busy)
-                        }
+                    HStack(alignment: .top, spacing: 12) {
+                        cacheColumn(family.targets.filter { $0.mode == "深色" })
+                        cacheColumn(family.targets.filter { $0.mode == "浅色" })
+                    }
+                    ForEach(family.targets.filter { $0.mode != "深色" && $0.mode != "浅色" }) { target in
+                        cacheCard(target)
                     }
                 }
             }
             Section { NavigationLink { BackupsView() } label: { Label("备份与恢复", systemImage: "arrow.uturn.backward") } }
         }.navigationTitle("CarPlay 壁纸缓存").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
+            .navigationDestination(isPresented: Binding(
+                get: { previewTarget != nil },
+                set: { if !$0 { previewTarget = nil } }
+            )) {
+                if let target = previewTarget {
+                    CacheDetailView(target: target).id(target.id)
+                }
+            }
             .toolbar { Button("刷新") { model.scan(deep: false) }.disabled(model.busy || !model.hasAccessBackend) }
             .task { if model.targets.isEmpty && !model.busy && model.hasAccessBackend { model.scan(deep: false) } }
+    }
+
+    private func cacheColumn(_ targets: [WallpaperTarget]) -> some View {
+        VStack(spacing: 12) {
+            ForEach(targets) { target in cacheCard(target) }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func cacheCard(_ target: WallpaperTarget) -> some View {
+        Button {
+            guard previewTarget == nil else { return }
+            previewTarget = target
+        } label: {
+            VStack(spacing: 5) {
+                ApplyTargetPreview(target: target)
+                    .overlay(alignment: .topTrailing) {
+                        if target.width > 0 && target.height > 0 {
+                            Text("\(target.width) × \(target.height)")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(.black.opacity(0.72), in: Capsule())
+                                .padding(5)
+                        }
+                    }
+                Text(target.mode).font(.caption.weight(.medium))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.busy)
     }
 }
 

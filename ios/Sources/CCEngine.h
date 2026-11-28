@@ -12,6 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSDictionary *)saveSnapshot:(NSArray<NSDictionary *> *)targets;
 + (NSArray<NSDictionary *> *)snapshots;
 + (NSDictionary *)restoreDefaults:(NSDictionary<NSString *, NSData *> *)images;
++ (NSDictionary *)clearWallpaperImages;
 + (NSDictionary *)apply:(NSDictionary *)target source:(NSString *)source;
 + (NSDictionary *)verify:(NSDictionary *)target source:(NSString *)source;
 // Pure recovery selection, shared by startup maintenance and regression tests.

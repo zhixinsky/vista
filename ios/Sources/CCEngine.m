@@ -1184,4 +1184,36 @@ static void CCAdoptExistingOriginals(void) {
     return @{@"ok":@YES, @"message":@"恢复完成，并已锁定。请重启 iPhone 后连接 CarPlay 检查效果。"};
 }
 
++ (NSDictionary *)clearWallpaperImages {
+    NSDictionary *found = [self discover:NO];
+    if (![found[@"ok"] boolValue]) return found;
+    NSArray *roots;
+    @synchronized (CCRoots) { roots = CCRoots.allObjects; }
+    if (!roots.count) return CCFail(@"未找到车机壁纸缓存。");
+    NSUInteger removed = 0, failed = 0;
+    for (NSString *root in roots) {
+        if (![wq_container_label(root) isEqualToString:CCIdentifier]) continue;
+        NSString *directory = CCWallpaperDirectory(root);
+        struct stat dir;
+        if (!wq_stat(directory, &dir) || !S_ISDIR(dir.st_mode) || S_ISLNK(dir.st_mode)) continue;
+        NSString *error = nil;
+        NSArray *names = wq_list(directory, &error);
+        if (!names) return CCFail(error ?: @"无法读取壁纸缓存目录。");
+        for (NSString *name in names) {
+            if (!name.length || [name containsString:@"/"] || [name isEqual:@"."] || [name isEqual:@".."]) continue;
+            NSString *path = [directory stringByAppendingPathComponent:name];
+            struct stat st;
+            if (!wq_stat(path, &st) || S_ISLNK(st.st_mode) || !S_ISREG(st.st_mode) || !CCAllowed(path)) continue;
+            if ((st.st_flags & (UF_IMMUTABLE | UF_APPEND)) && !wq_clear_user_immutable(path)) { failed++; continue; }
+            if (!wq_stat(path, &st) || S_ISLNK(st.st_mode) || !S_ISREG(st.st_mode)) { failed++; continue; }
+            NSString *deleteError = nil;
+            if (wq_delete_expecting(path, wq_identity_for_stat(&st), &deleteError)) removed++;
+            else failed++;
+        }
+    }
+    if (removed == 0 && failed > 0) return CCFail(@"壁纸缓存未能清空，请稍后重试。");
+    return @{@"ok":@YES, @"removed":@(removed),
+        @"message":[NSString stringWithFormat:@"已清空 %lu 个壁纸缓存文件。请在车机的壁纸设置中重新选择内置壁纸。", (unsigned long)removed]};
+}
+
 @end
