@@ -23,6 +23,10 @@ static void CCProgress(int64_t done, int64_t total, BOOL finished) {
     if (finished) wq_log(@"CarVista container scan finished: %lld/%lld", done, total);
 }
 static NSDictionary *CCFail(NSString *text) { return @{@"ok": @NO, @"message": text ?: @"操作失败"}; }
+static NSString *const CCSuppressWallpaperFillKey = @"CarVistaSuppressWallpaperFillUntil";
+static BOOL CCWallpaperFillSuppressed(void) {
+    return [NSUserDefaults.standardUserDefaults doubleForKey:CCSuppressWallpaperFillKey] > [NSDate date].timeIntervalSince1970;
+}
 static NSString *CCCanonical(NSString *path) {
     NSString *p = path.stringByStandardizingPath;
     if ([p hasPrefix:@"/var/"]) p = [@"/private" stringByAppendingString:p];
@@ -926,6 +930,7 @@ static void CCSaveWallpaperEvidence(NSDictionary *record) {
     CCSetup();
     NSString *root = [NSUserDefaults.standardUserDefaults stringForKey:@"CCContainer"];
     if (!root.length || (![CCKernelSession isReady] && !wq_app_group().length) || !CCRegisterRoot(root)) return @{@"ok":@NO, @"skipped":@YES};
+    if (CCWallpaperFillSuppressed()) return @{@"ok":@YES, @"skipped":@YES, @"suppressed":@YES};
     root = CCCanonical(root);
     NSDictionary *beforeEvidence = CCWallpaperEvidence(root);
     CCSaveWallpaperEvidence(@{@"stage":@"beforeAutomaticRecovery", @"snapshot":beforeEvidence});
@@ -1212,6 +1217,7 @@ static void CCAdoptExistingOriginals(void) {
         }
     }
     if (removed == 0 && failed > 0) return CCFail(@"壁纸缓存未能清空，请稍后重试。");
+    [NSUserDefaults.standardUserDefaults setDouble:[NSDate date].timeIntervalSince1970 + 24 * 60 * 60 forKey:CCSuppressWallpaperFillKey];
     return @{@"ok":@YES, @"removed":@(removed),
         @"message":[NSString stringWithFormat:@"已清空 %lu 个壁纸缓存文件。请在车机的壁纸设置中重新选择内置壁纸。", (unsigned long)removed]};
 }
