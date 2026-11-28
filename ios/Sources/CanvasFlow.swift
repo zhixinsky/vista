@@ -754,12 +754,6 @@ struct ApplyWallpaperView: View {
         return counterpart(of: sibling, mode: mode)
     }
 
-    private func entryPreview(_ mode: String) -> UIImage? {
-        let entry = entries.first(where: { $0.mode == mode }) ?? (entries.count == 1 ? entries.first : nil)
-        guard let entry else { return nil }
-        return UIImage(contentsOfFile: entry.preview.path)
-    }
-
     private func counterpart(of target: WallpaperTarget, mode: String) -> WallpaperTarget? {
         let from = target.mode == "深色" ? "-Dark-" : "-Light-"
         let to = mode == "深色" ? "-Dark-" : "-Light-"
@@ -821,21 +815,21 @@ struct ApplyWallpaperView: View {
         return VStack(spacing: 5) {
             if let target, !creating {
                 ApplyTargetPreview(target: target)
-            } else if creating, let preview = entryPreview(mode) {
-                ApplyImagePreview(image: preview)
-                    .overlay(alignment: .bottomLeading) {
-                        Text("等待写入")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(.black.opacity(0.62), in: Capsule())
-                            .padding(6)
-                    }
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(uiColor: .tertiarySystemFill))
                     .overlay { Image(systemName: "photo").foregroundStyle(.secondary) }
+                    .overlay(alignment: .bottomLeading) {
+                        if creating {
+                            Text("等待写入")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 3)
+                                .background(.black.opacity(0.62), in: Capsule())
+                                .padding(6)
+                        }
+                    }
                     .frame(height: 80)
             }
             Button {
