@@ -749,8 +749,17 @@ struct ApplyWallpaperView: View {
     private func writableTarget(_ mode: String, in family: TargetFamily) -> WallpaperTarget? {
         guard entries.count == 1 || modes.contains(mode) else { return nil }
         let candidates = family.targets.filter { $0.mode == mode }
-        if candidates.count == 1, let target = candidates.first, target.editable { return target }
-        guard candidates.isEmpty, let sibling = family.targets.first(where: \.editable) else { return nil }
+        if candidates.count > 1 { return nil }
+        if let target = candidates.first {
+            if target.editable { return target }
+            // A remembered slot with no file on disk uses that exact name. Do not
+            // offer the old repair-copy action in place of writing the new image.
+            guard target.missing else { return nil }
+            var raw = target.raw
+            raw["create"] = true
+            return WallpaperTarget(raw: raw)
+        }
+        guard let sibling = family.targets.first(where: \.editable) else { return nil }
         return counterpart(of: sibling, mode: mode)
     }
 
