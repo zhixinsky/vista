@@ -57,7 +57,7 @@ struct CarPlaySelfCheckView: View {
                     CarPlayRadarHeader(scanning: model.selfChecking, ready: ready, checked: checked)
                         .padding(.top, 12)
                     VStack(spacing: 0) {
-                        row("设备信息", detail: "\(deviceName) · \(ServiceClient.machine)", good: true)
+                        row("设备信息", detail: deviceDescription, good: true)
                         row("CarVista 版本", detail: model.appVersion, good: true)
                         row("系统兼容性", detail: "iOS \(UIDevice.current.systemVersion)", good: supported)
                         row("App Group", detail: model.kernelBackendCandidate ? "17.0–17.7.x / 18.0–18.7.1 内核方案不要求带组" : model.appGroupStatus, good: model.kernelBackendCandidate || (!model.group.isEmpty && FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: model.group) != nil))
@@ -95,9 +95,12 @@ struct CarPlaySelfCheckView: View {
             .preferredColorScheme(.light)
         }
     }
-    private var deviceName: String {
-        let names = ["iPhone18,2": "iPhone 17 Pro Max", "iPhone18,1": "iPhone 17 Pro", "iPhone17,2": "iPhone 16 Pro Max", "iPhone17,1": "iPhone 16 Pro"]
-        return names[ServiceClient.machine] ?? UIDevice.current.model
+    private var deviceDescription: String {
+        let identifier = ServiceClient.machine
+        guard let name = IPhoneModelNames.byIdentifier[identifier] else {
+            return identifier.isEmpty ? UIDevice.current.model : identifier
+        }
+        return "\(name) · \(identifier)"
     }
     private func start() { model.runSelfCheck() }
     private func row(_ title: String, detail: String, good: Bool?) -> some View {
