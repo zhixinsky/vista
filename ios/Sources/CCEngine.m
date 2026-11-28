@@ -459,6 +459,55 @@ static void CCCollectWallpaperVersions(NSString *directory, NSMutableSet *versio
 // After iOS clears wallpaper-images, the old files sit directly in Library/Caches and still carry the suffix.
 // A single suffix is remembered for the next time both directories are empty.
 // Nil when the visible files mix several suffixes, or nothing was ever seen.
+static NSString *CCSlotNamesPath(void) {
+    return [CCRepairDirectory() stringByAppendingPathComponent:@"slot-names.json"];
+}
+static NSDictionary *CCSlotNameRecords(void) {
+    NSData *json = [NSData dataWithContentsOfFile:CCSlotNamesPath()];
+    id records = json ? [NSJSONSerialization JSONObjectWithData:json options:0 error:nil] : nil;
+    return [records isKindOfClass:NSDictionary.class] ? records : @{};
+}
+// Twelve names already seen in this container: six colours, each with Dark and Light, one suffix.
+static NSArray<NSString *> *CCValidSlotNames(NSArray *names) {
+    if (names.count != 12) return nil;
+    NSMutableSet *groups = NSMutableSet.new;
+    NSMutableSet *slots = NSMutableSet.new;
+    NSMutableSet *versions = NSMutableSet.new;
+    NSMutableSet *unique = NSMutableSet.new;
+    for (NSString *name in names) {
+        if (![name isKindOfClass:NSString.class] || !CCWallpaperName(name) || [unique containsObject:name]) return nil;
+        [unique addObject:name];
+        NSString *slot = CCWallpaperSlot(name);
+        if (!slot || [slots containsObject:slot]) return nil;
+        [slots addObject:slot];
+        NSString *body = [slot substringFromIndex:[@"CARWallpaper" length]];
+        NSRange split = [body rangeOfString:@"-" options:NSBackwardsSearch];
+        if (split.location == NSNotFound) return nil;
+        NSString *group = [body substringToIndex:split.location];
+        NSString *mode = [body substringFromIndex:NSMaxRange(split)];
+        if (!group.length || ![@[@"Dark", @"Light"] containsObject:mode]) return nil;
+        [groups addObject:group];
+        NSInteger version = [[name stringByDeletingPathExtension] componentsSeparatedByString:@"-"].lastObject.integerValue;
+        if (version <= 0) return nil;
+        [versions addObject:@(version)];
+    }
+    if (groups.count != 6 || slots.count != 12 || versions.count != 1) return nil;
+    return [unique.allObjects sortedArrayUsingSelector:@selector(compare:)];
+}
+static void CCRememberSlotNames(NSString *root, NSArray<NSString *> *names) {
+    NSArray *valid = CCValidSlotNames(names);
+    if (!valid) return;
+    NSMutableDictionary *records = [CCSlotNameRecords() mutableCopy];
+    if ([records[root] isEqual:valid]) return;
+    records[root] = valid;
+    NSData *json = [NSJSONSerialization dataWithJSONObject:records options:NSJSONWritingSortedKeys error:nil];
+    NSString *directory = CCRepairDirectory();
+    if (![NSFileManager.defaultManager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil]) return;
+    [json writeToFile:CCSlotNamesPath() options:NSDataWritingAtomic error:nil];
+}
+static NSArray<NSString *> *CCRememberedSlotNames(NSString *root) {
+    return CCValidSlotNames(CCSlotNameRecords()[root]);
+}
 static NSNumber *CCWallpaperCacheVersion(NSString *root) {
     NSMutableSet *versions = NSMutableSet.new;
     CCCollectWallpaperVersions(CCWallpaperDirectory(root), versions);
@@ -970,138 +1019,60 @@ static void CCSaveWallpaperEvidence(NSDictionary *record) {
     CCSetup();
     NSString *root = [NSUserDefaults.standardUserDefaults stringForKey:@"CCContainer"];
     if (!root.length || (![CCKernelSession isReady] && !wq_app_group().length) || !CCRegisterRoot(root)) return @{@"ok":@NO, @"skipped":@YES};
-    if (CCWallpaperFillSuppressed()) return @{@"ok":@YES, @"skipped":@YES, @"suppressed":@YES};
     root = CCCanonical(root);
     NSDictionary *beforeEvidence = CCWallpaperEvidence(root);
     CCSaveWallpaperEvidence(@{@"stage":@"beforeAutomaticRecovery", @"snapshot":beforeEvidence});
     @try {
-    NSSet *allowed = [NSSet setWithArray:@[@"Black", @"Blue", @"Brown", @"DarkBlue", @"Green", @"Grey", @"Hero", @"Lilac", @"Purple", @"Red", @"Teal"]];
-    NSMutableSet *groups = NSMutableSet.new;
-    for (NSString *key in defaults) {
-        NSArray *parts = [key componentsSeparatedByString:@"-"];
-        if (parts.count != 2 || ![allowed containsObject:parts[0]] || ![@[@"Dark", @"Light"] containsObject:parts[1]]) return CCFail(@"自动恢复默认壁纸配置无效。");
-        [groups addObject:parts[0]];
-    }
-    if (defaults.count && (defaults.count != 12 || groups.count != 6)) return CCFail(@"自动恢复需要完整的六组深浅默认壁纸。");
+    (void)defaults;
     NSMutableArray *issues = NSMutableArray.new;
     NSArray *files = CCWalkContainer(root, issues, nil);
-    CCKeepWallpapers(root, files);
+    NSMutableArray *present = NSMutableArray.new;
+    for (NSDictionary *file in files) {
+        NSString *name = file[@"name"];
+        if ([name isKindOfClass:NSString.class]) [present addObject:name];
+    }
+    // A complete set is this user's colours. Remember it and do not write over it.
+    if (CCValidSlotNames(present)) {
+        CCKeepWallpapers(root, files);
+        CCRememberSlotNames(root, present);
+        return @{@"ok":@YES, @"skipped":@YES, @"recorded":@YES};
+    }
+    if (present.count) return @{@"ok":@YES, @"skipped":@YES};
+    if (CCWallpaperFillSuppressed()) return @{@"ok":@YES, @"skipped":@YES, @"suppressed":@YES};
+    NSArray<NSString *> *names = CCRememberedSlotNames(root);
+    if (!names) return @{@"ok":@YES, @"skipped":@YES};
+    NSString *directory = CCWallpaperDirectory(root);
     NSDictionary *records = CCRepairRecords();
-    NSDictionary *plan = [self cacheRecoveryPlan:records files:files root:root];
-    if ([plan[@"ambiguous"] unsignedIntegerValue]) return CCFail(@"同一槽位存在多个备份版本，未执行自动恢复。");
-    NSMutableDictionary *savedSlots = NSMutableDictionary.new;
-    for (NSString *path in records) {
-        NSDictionary *record = records[path];
-        if (![record isKindOfClass:NSDictionary.class] || ![record[@"root"] isEqual:root] ||
-            ![path.stringByDeletingLastPathComponent isEqual:CCWallpaperDirectory(root)]) continue;
-        NSString *slot = CCWallpaperSlot(path);
-        if (!slot) continue;
-        NSString *key = [slot substringFromIndex:[@"CARWallpaper" length]];
-        // Never silently replace a saved custom group with a different server group.
-        if ((defaults.count && !defaults[key]) || savedSlots[key]) return CCFail(@"本机槽位与默认配置不一致或存在多个版本，已保留现场。");
-        savedSlots[key] = path;
-    }
-    NSMutableDictionary *looseSlots = NSMutableDictionary.new;
-    NSMutableSet *ambiguousLoose = NSMutableSet.new;
-    NSString *caches = [root stringByAppendingPathComponent:@"Library/Caches"];
-    for (NSString *name in wq_list(caches, NULL)) {
-        NSDictionary *candidate = CCLooseWallpaper(root, name);
-        if (!candidate) continue;
-        NSString *key = [CCWallpaperSlot(name) substringFromIndex:[@"CARWallpaper" length]];
-        if (looseSlots[key]) [ambiguousLoose addObject:key];
-        looseSlots[key] = candidate;
-    }
-    NSMutableSet *keys = [NSMutableSet setWithArray:defaults.allKeys];
-    if (!defaults.count) {
-        [keys addObjectsFromArray:savedSlots.allKeys];
-        [keys addObjectsFromArray:looseSlots.allKeys];
-        for (NSDictionary *file in files) {
-            NSString *slot = CCWallpaperSlot(file[@"path"]);
-            if (slot) [keys addObject:[slot substringFromIndex:[@"CARWallpaper" length]]];
-        }
-        NSMutableSet *localGroups = NSMutableSet.new;
-        for (NSString *key in keys) [localGroups addObject:[key componentsSeparatedByString:@"-"].firstObject];
-        if (keys.count != 12 || localGroups.count != 6) return @{@"ok":@NO, @"needsDefaults":@YES};
-    }
     NSMutableDictionary *prepared = NSMutableDictionary.new;
-    NSMutableDictionary *paths = NSMutableDictionary.new;
-    NSMutableDictionary *sources = NSMutableDictionary.new;
-    NSString *temp = [CCRepairDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
-    if (![NSFileManager.defaultManager createDirectoryAtPath:temp withIntermediateDirectories:YES attributes:nil error:nil]) return CCFail(@"无法准备自动恢复文件。");
-    @try {
-        for (NSString *key in [[keys allObjects] sortedArrayUsingSelector:@selector(compare:)]) {
-            NSString *path = savedSlots[key];
-            NSData *data = path ? CCRepairData(records[path]) : nil;
-            NSString *existingPath = nil;
-            for (NSDictionary *file in files) {
-                if ([CCWallpaperSlot(file[@"path"]) isEqual:[@"CARWallpaper" stringByAppendingString:key]]) {
-                    if (existingPath) return CCFail(@"同一槽位存在多个缓存版本，未执行自动恢复。");
-                    existingPath = file[@"path"];
-                }
+    for (NSString *name in names) {
+        NSString *path = [directory stringByAppendingPathComponent:name];
+        NSData *data = nil;
+        for (NSString *saved in records) {
+            NSDictionary *record = records[saved];
+            if ([record isKindOfClass:NSDictionary.class] && [record[@"root"] isEqual:root] && [saved.lastPathComponent isEqual:name]) {
+                data = CCRepairData(record);
+                if (data) break;
             }
-            // Existing targets win filename/version selection, but never overwrite
-            // the saved custom bytes with a system-regenerated default.
-            if (existingPath) path = existingPath;
-            NSDictionary *loose = nil;
-            if (path) {
-                // A saved/existing filename fixes the version: never guess another suffix.
-                loose = CCLooseWallpaper(root, path.lastPathComponent);
-            } else if (![ambiguousLoose containsObject:key]) {
-                loose = looseSlots[key];
-                if (loose) path = [CCWallpaperDirectory(root) stringByAppendingPathComponent:[loose[@"path"] lastPathComponent]];
-            } else {
-                return CCFail(@"根目录同一槽位存在多个版本，已保留文件，未自动选择。");
-            }
-            NSDictionary *choice = [self recoverySource:data loose:loose[@"data"]];
-            data = choice[@"data"];
-            if ([choice[@"source"] isEqual:@"loose"]) sources[key] = loose;
-            // A scan can miss a locked file. Trust the directory listing so a
-            // present -14 is not joined by a newly created -16.
-            NSArray *onDisk = CCWallpaperSlotNames(root, key);
-            if (onDisk.count > 1) return CCFail([NSString stringWithFormat:@"%@ 同时有 %lu 个版本，未自动写入。", key, (unsigned long)onDisk.count]);
-            if (onDisk.count == 1) path = [CCWallpaperDirectory(root) stringByAppendingPathComponent:onDisk.firstObject];
-            else if (!path) {
-                NSNumber *version = CCWallpaperCacheVersion(root);
-                if (!version) return CCFail(@"目录已被清空，且还没有记住缓存版本，未自动写入。");
-                path = [CCWallpaperDirectory(root) stringByAppendingPathComponent:[NSString stringWithFormat:@"CARWallpaper%@-%@.cpbitmap", key, version]];
-            }
-            if (!data) {
-                if (!defaults.count) return @{@"ok":@NO, @"needsDefaults":@YES};
-                UIImage *image = [UIImage imageWithData:defaults[key]];
-                NSString *encoded = [temp stringByAppendingPathComponent:[key stringByAppendingPathExtension:@"cpbitmap"]];
-                if (!image || ![[self encode:image to:encoded][@"ok"] boolValue]) return CCFail(@"默认壁纸编码失败，未重建系统缓存。");
-                data = [NSData dataWithContentsOfFile:encoded];
-                if (!data.length || !CCDecode(data)) return CCFail(@"默认壁纸校验失败，未重建系统缓存。");
-            }
-            prepared[key] = data;
-            paths[key] = path;
         }
-        // Stage all twelve copies before touching the system hierarchy.
-        for (NSString *key in prepared) {
-            if (!CCKeepData(root, paths[key], prepared[key])) return CCFail(@"未能保存完整的十二张恢复副本，未重建系统缓存。");
-        }
-        NSUInteger repaired = 0, failed = 0, cleaned = 0;
-        for (NSString *key in [[paths allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
-            NSString *path = paths[key];
-            struct stat st;
-            errno = 0;
-            if (wq_stat(path, &st)) {
-                if (!S_ISREG(st.st_mode) || S_ISLNK(st.st_mode)) failed++;
-                else if (CCCleanupLooseWallpaper(root, sources[key], path, prepared[key])) cleaned++;
-                continue;
-            }
-            if (errno != ENOENT) { failed++; continue; }
-            NSDictionary *result = [self repairCache:@{@"path":path}];
-            if ([result[@"ok"] boolValue]) {
-                repaired++;
-                if (CCCleanupLooseWallpaper(root, sources[key], path, prepared[key])) cleaned++;
-            } else { failed++; wq_log(@"CarVista automatic repair: %@: %@", path, result[@"message"]); }
-        }
-        wq_log(@"CarVista automatic repair: saved=12, restored=%lu, failed=%lu, looseCleaned=%lu", (unsigned long)repaired, (unsigned long)failed, (unsigned long)cleaned);
-        return @{@"ok":@(failed == 0), @"saved":@12, @"repaired":@(repaired), @"failed":@(failed), @"cleaned":@(cleaned)};
-    } @finally {
-        [NSFileManager.defaultManager removeItemAtPath:temp error:nil];
+        if (!data) return @{@"ok":@YES, @"skipped":@YES};
+        prepared[path] = data;
     }
+    NSString *error = nil;
+    if (!CCEnsureWallpaperDirectory(root, &error)) return CCFail(error ?: @"无法重建壁纸缓存目录。");
+    for (NSString *path in prepared) {
+        if (!CCKeepData(root, path, prepared[path])) return CCFail(@"未能保存完整的十二张恢复副本，未写回系统缓存。");
+    }
+    NSUInteger repaired = 0, failed = 0;
+    for (NSString *path in [[prepared allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+        struct stat st;
+        errno = 0;
+        if (wq_stat(path, &st) || errno != ENOENT) { failed++; continue; }
+        NSDictionary *result = [self repairCache:@{@"path":path}];
+        if ([result[@"ok"] boolValue]) repaired++;
+        else { failed++; wq_log(@"CarVista automatic repair: %@: %@", path, result[@"message"]); }
+    }
+    wq_log(@"CarVista automatic repair: restored=%lu, failed=%lu", (unsigned long)repaired, (unsigned long)failed);
+    return @{@"ok":@(failed == 0), @"saved":@12, @"repaired":@(repaired), @"failed":@(failed)};
     } @finally {
         CCSaveWallpaperEvidence(@{@"stage":@"afterAutomaticRecovery", @"beforeCapturedAtEpoch":beforeEvidence[@"capturedAtEpoch"], @"snapshot":CCWallpaperEvidence(root)});
     }
@@ -1271,4 +1242,4 @@ static void CCAdoptExistingOriginals(void) {
         @"message":[NSString stringWithFormat:@"已清空 %lu 个壁纸缓存文件。请在车机的壁纸设置中重新选择内置壁纸。", (unsigned long)removed]};
 }
 
-@end
+@end                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
