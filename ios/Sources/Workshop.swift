@@ -42,6 +42,7 @@ struct WallpaperTarget: Identifiable {
     var missing: Bool { raw["missing"] as? Bool == true }
     var repairable: Bool { missing && (raw["repairable"] as? Bool == true) }
     var editable: Bool { !missing && WallpaperStorage.validSize(width: width, height: height) }
+    var creatable: Bool { raw["create"] as? Bool == true }
     var status: String { raw["status"] as? String ?? (editable ? "可替换" : "暂时无法读取，请重新查找") }
 }
 
@@ -579,7 +580,7 @@ final class WorkshopModel: ObservableObject {
 
     func applyBatch(entries: [SavedWallpaper], targets: [WallpaperTarget], completion: @escaping (Int) -> Void) {
         guard !busy else { return }
-        guard !targets.isEmpty, targets.allSatisfy(\.editable),
+        guard !targets.isEmpty, targets.allSatisfy({ $0.editable || $0.creatable }),
               Set(targets.map(\.id)).count == targets.count, !entries.isEmpty else {
             message = "所选缓存不可替换，请重新查找。"; completion(0); return
         }
@@ -588,8 +589,11 @@ final class WorkshopModel: ObservableObject {
         }
         message = "正在备份并应用壁纸…"
         work({
-            let backup = CCEngine.saveSnapshot(targets.map(\.raw)) as? [String: Any] ?? [:]
-            guard backup["ok"] as? Bool == true else { return ["completed": 0, "message": backup["message"] as? String ?? "备份失败"] }
+            let existing = targets.filter(\.editable)
+            if !existing.isEmpty {
+                let backup = CCEngine.saveSnapshot(existing.map(\.raw)) as? [String: Any] ?? [:]
+                guard backup["ok"] as? Bool == true else { return ["completed": 0, "message": backup["message"] as? String ?? "备份失败"] }
+            }
             var completed = 0
             var notes: [String] = []
             for target in targets {

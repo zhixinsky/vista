@@ -91,6 +91,25 @@ static BOOL CCWallpaperName(NSString *name) {
     return [pattern firstMatchInString:name options:0 range:NSMakeRange(0, name.length)] != nil;
 }
 
+// A new Dark/Light sibling may be created beside an existing cache file.
+// The file itself must not exist yet; every parent must be a real directory.
+static BOOL CCCreateWallpaperDestination(NSString *path) {
+    NSString *p = CCCanonical(path);
+    if (!CCWallpaperName(p.lastPathComponent)) return NO;
+    NSArray *roots;
+    @synchronized (CCRoots) { roots = CCRoots.allObjects; }
+    for (NSString *root in roots) {
+        if (![p.stringByDeletingLastPathComponent isEqualToString:CCWallpaperDirectory(root)] || ![wq_container_label(root) isEqualToString:CCIdentifier]) continue;
+        NSString *cursor = p.stringByDeletingLastPathComponent;
+        while ([cursor hasPrefix:[root stringByAppendingString:@"/"]] || [cursor isEqualToString:CCCanonical(root)]) {
+            struct stat st;
+            if (!wq_stat(cursor, &st) || !S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode)) return NO;
+            if ([cursor isEqualToString:CCCanonical(root)]) return YES;
+            cursor = cursor.stringByDeletingLastPathComponent;
+        }
+    }
+    return NO;
+}
 static BOOL CCAllowed(NSString *path) {
     NSString *p = CCCanonical(path);
     if (!CCWallpaperName(p.lastPathComponent)) return NO;
@@ -823,6 +842,25 @@ static NSString *CCSnapshotRoot(void) {
 }
 + (NSDictionary *)apply:(NSDictionary *)target source:(NSString *)source {
     NSString *path = target[@"path"];
+    if ([path isKindOfClass:NSString.class]) {
+        NSString *canonical = CCCanonical(path);
+        struct stat existing;
+        errno = 0;
+        if (!wq_stat(canonical, &existing) && errno == ENOENT && CCCreateWallpaperDestination(canonical)) {
+            NSString *documents = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+            if (![source.stringByStandardizingPath hasPrefix:[documents stringByAppendingString:@"/"]]) return CCFail(@"源文件不属于本应用");
+            NSData *data = [NSData dataWithContentsOfFile:source options:NSDataReadingMappedIfSafe error:nil];
+            if (!CCDecode(data)) return CCFail(@"源 CPBitmap 无法解码，未写入");
+            NSString *error = nil;
+            if (!wq_create_file(canonical, data, &error)) return CCFail(error ?: @"未能新建该壁纸缓存。");
+            if (![wq_read(canonical, 0, NULL) isEqualToData:data]) return CCFail(@"新建后的内容未通过核对。");
+            CCKeepData(CCRootForPath(canonical), canonical, data);
+            if (!wq_set_user_immutable(canonical)) {
+                return @{@"ok":@YES, @"message":@"已按对应文件名新建缓存，但没能锁定文件。"};
+            }
+            return @{@"ok":@YES, @"message":@"已按对应文件名新建缓存并写入。重新连接车机前请先重启 iPhone。"};
+        }
+    }
     if (![path isKindOfClass:NSString.class] || !CCAllowed(path)) return CCFail(@"目标不属于已确认的 CarPlayWallpaper 缓存，拒绝写入");
     NSDictionary *expected = target[@"version"];
     if (![expected isKindOfClass:NSDictionary.class] || ![expected isEqual:wq_file_version(path)]) return CCFail(@"缓存已发生变化，请重新扫描后再操作");

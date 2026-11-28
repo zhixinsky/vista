@@ -716,10 +716,11 @@ struct ApplyWallpaperView: View {
                         if let entry = entries.first, let image = UIImage(contentsOfFile: entry.preview.path) {
                             Section("新壁纸") { ApplyImagePreview(image: image, height: 150) }
                         }
-                        Section("将替换「\(targetName)」") {
-                            if let target = selected.first { ApplyTargetPreview(target: target, height: 150) }
+                        Section(selected.contains(where: \.creatable) ? "将写入「\(targetName)」" : "将替换「\(targetName)」") {
+                            if let target = selected.first(where: \.editable) { ApplyTargetPreview(target: target, height: 150) }
                             Text(selected.map(\.mode).joined(separator: "、"))
-                            Text("应用前会自动备份原壁纸。").font(.footnote).foregroundStyle(.secondary)
+                            Text(selected.contains(where: \.creatable) ? "尚未存在的深色或浅色缓存会按对应文件名新建。已有文件会先备份再替换。" : "应用前会自动备份原壁纸。")
+                                .font(.footnote).foregroundStyle(.secondary)
                         }
                     }.navigationTitle("确认替换").navigationBarTitleDisplayMode(.inline)
                         .toolbar {
@@ -746,18 +747,38 @@ struct ApplyWallpaperView: View {
     }
 
     private func writableTarget(_ mode: String, in family: TargetFamily) -> WallpaperTarget? {
+        guard entries.count == 1 || modes.contains(mode) else { return nil }
         let candidates = family.targets.filter { $0.mode == mode }
-        guard candidates.count == 1, let target = candidates.first, target.editable,
-              entries.count == 1 || modes.contains(mode) else { return nil }
-        return target
+        if candidates.count == 1, let target = candidates.first, target.editable { return target }
+        guard candidates.isEmpty, let sibling = family.targets.first(where: \.editable) else { return nil }
+        return counterpart(of: sibling, mode: mode)
+    }
+
+    private func entryPreview(_ mode: String) -> UIImage? {
+        let entry = entries.first(where: { $0.mode == mode }) ?? (entries.count == 1 ? entries.first : nil)
+        guard let entry else { return nil }
+        return UIImage(contentsOfFile: entry.preview.path)
+    }
+
+    private func counterpart(of target: WallpaperTarget, mode: String) -> WallpaperTarget? {
+        let from = target.mode == "深色" ? "-Dark-" : "-Light-"
+        let to = mode == "深色" ? "-Dark-" : "-Light-"
+        guard target.name.contains(from) else { return nil }
+        let name = target.name.replacingOccurrences(of: from, with: to)
+        let directory = (target.id as NSString).deletingLastPathComponent
+        let path = (directory as NSString).appendingPathComponent(name)
+        return WallpaperTarget(raw: [
+            "path": path, "name": name, "mode": mode,
+            "width": target.width, "height": target.height, "create": true
+        ])
     }
 
     private func unavailableReason(_ mode: String, in family: TargetFamily) -> String? {
+        if writableTarget(mode, in: family)?.creatable == true { return nil }
         let candidates = family.targets.filter { $0.mode == mode }
-        guard !candidates.isEmpty else { return "尚未找到\(mode)文件，请重新检查深浅状态。" }
-        guard candidates.count == 1 else { return "\(mode)位置存在重复记录，请重新查找。" }
-        guard let target = candidates.first, target.editable else {
-            return "\(mode)：\(candidates.first?.status ?? "暂不可用")"
+        guard candidates.count <= 1 else { return "\(mode)位置存在重复记录，请重新查找。" }
+        if let target = candidates.first, !target.editable {
+            return "\(mode)：\(target.status)"
         }
         guard entries.count == 1 || modes.contains(mode) else { return "当前作品没有\(mode)图片，请先保存对应图片。" }
         return nil
@@ -796,9 +817,21 @@ struct ApplyWallpaperView: View {
     private func modeCard(_ mode: String, family: TargetFamily, writable: WallpaperTarget?) -> some View {
         let target = family.targets.first(where: { $0.mode == mode && $0.editable })
             ?? family.targets.first(where: { $0.mode == mode })
+        let creating = writable?.creatable == true
         return VStack(spacing: 5) {
-            if let target {
+            if let target, !creating {
                 ApplyTargetPreview(target: target)
+            } else if creating, let preview = entryPreview(mode) {
+                ApplyImagePreview(image: preview)
+                    .overlay(alignment: .bottomLeading) {
+                        Text("等待写入")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.62), in: Capsule())
+                            .padding(6)
+                    }
             } else {
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(uiColor: .tertiarySystemFill))
@@ -1128,11 +1161,4 @@ private struct SupportedVersionsView: View {
         guard !loading else { return }
         loading = true
         failed = false
-        defer { loading = false }
-        do {
-            let feed = try await ServiceClient.shared.compatibility()
-            versions = feed.versions ?? Array(Set(feed.items.map(\.system))).sorted(by: >)
-        }
-        catch { failed = true }
-    }
-}
+        defer { loading 

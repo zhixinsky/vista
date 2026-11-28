@@ -63,14 +63,14 @@ struct CarPlaySelfCheckView: View {
                         row("App Group", detail: model.kernelBackendCandidate ? "17.0–17.7.x / 18.0–18.7.1 内核方案不要求带组" : model.appGroupStatus, good: model.kernelBackendCandidate || (!model.group.isEmpty && FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: model.group) != nil))
                         row("实际访问权限", detail: checked ? readable ? "目标壁纸目录可列出" : "尚未确认可读取目标壁纸目录" : "等待检索", good: checked ? readable : nil)
                         row("CarPlay 容器", detail: checked ? model.root.isEmpty ? "未定位，请重新检测" : "已定位并确认身份" : "等待检索", good: checked ? !model.root.isEmpty : nil)
-                        row("壁纸缓存", detail: checked ? "可用 \(count) 张 · 缺失 \(model.targets.filter(\.missing).count) 张" : "等待检索", good: checked ? count == 12 : nil)
+                        row("壁纸缓存", detail: checked ? "已检索到缓存 \(count) 张" : "等待检索", good: checked ? count > 0 : nil)
                         let copies = result["validRepairCopies"] as? Int ?? 0
                         row("本机恢复副本", detail: checked ? "已验证 \(copies) 张；缺项恢复时需要默认壁纸" : "等待检索", good: checked ? copies == 12 : nil)
                     }.background(Color.white, in: RoundedRectangle(cornerRadius: 20))
-                    if checked && !ready {
+                    if checked && !ready && count == 0 {
                         VStack(alignment: .leading, spacing: 10) {
                             Label("下一步", systemImage: "arrow.right.circle").font(.headline)
-                            Text((result["message"] as? String).flatMap { result["ok"] as? Bool == false ? $0 : nil } ?? (!supported ? "当前系统不在支持范围内。27.3 仅支持 beta 1（24C5037i）。" : !model.hasAccessBackend ? "当前安装没有提供 App Group，请使用支持 App Group 的方式重新签名安装。" : !readable || count == 0 ? "请连接 CarPlay，在车机设置中切换一次系统壁纸，然后返回重新检测。若仍失败，请到设置页生成诊断报告。" : "部分壁纸缺失或无法读取。可在车机切换其他内置壁纸后重新检测，或进入壁纸缓存页检查。"))
+                            Text((result["message"] as? String).flatMap { result["ok"] as? Bool == false ? $0 : nil } ?? (!supported ? "当前系统不在支持范围内。27.3 仅支持 beta 1（24C5037i）。" : !model.hasAccessBackend ? "当前安装没有提供 App Group，请使用支持 App Group 的方式重新签名安装。" : !readable || count == 0 ? "请连接 CarPlay，在车机设置中切换一次系统壁纸，然后返回重新检测。若仍失败，请到设置页生成诊断报告。" : "已检索到壁纸缓存。连接车机后可确认显示效果。"))
                                 .font(.subheadline).foregroundStyle(.secondary)
                             if model.hasAccessBackend && count == 0 {
                                 Button("继续定位容器") { model.scan(deep: true) }.disabled(model.busy)
