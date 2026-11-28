@@ -64,8 +64,6 @@ struct CarPlaySelfCheckView: View {
                         row("实际访问权限", detail: checked ? readable ? "目标壁纸目录可列出" : "尚未确认可读取目标壁纸目录" : "等待检索", good: checked ? readable : nil)
                         row("CarPlay 容器", detail: checked ? model.root.isEmpty ? "未定位，请重新检测" : "已定位并确认身份" : "等待检索", good: checked ? !model.root.isEmpty : nil)
                         row("壁纸缓存", detail: checked ? "已检索到缓存 \(count) 张" : "等待检索", good: checked ? count > 0 : nil)
-                        let copies = result["validRepairCopies"] as? Int ?? 0
-                        row("本机恢复副本", detail: checked ? "已验证 \(copies) 张；缺项恢复时需要默认壁纸" : "等待检索", good: checked ? copies == 12 : nil)
                     }.background(Color.white, in: RoundedRectangle(cornerRadius: 20))
                     if checked && !ready && count == 0 {
                         VStack(alignment: .leading, spacing: 10) {
