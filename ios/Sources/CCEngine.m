@@ -1266,4 +1266,9 @@ static void CCAdoptExistingOriginals(void) {
         }
     }
     if (removed == 0 && failed > 0) return CCFail(@"壁纸缓存未能清空，请稍后重试。");
-    [NSUserDefaults.standardUserDefaults setDouble:[NSDate date].timeIntervalSince1970 + 24 * 60 * 60 forKey:CCSuppressWa
+    [NSUserDefaults.standardUserDefaults setDouble:[NSDate date].timeIntervalSince1970 + 24 * 60 * 60 forKey:CCSuppressWallpaperFillKey];
+    return @{@"ok":@YES, @"removed":@(removed),
+        @"message":[NSString stringWithFormat:@"已清空 %lu 个壁纸缓存文件。请在车机的壁纸设置中重新选择内置壁纸。", (unsigned long)removed]};
+}
+
+@end
