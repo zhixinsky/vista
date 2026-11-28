@@ -918,10 +918,30 @@ struct CacheBrowserView: View {
             }
             ForEach(targetFamilies(model.targets)) { family in
                 Section(family.title) {
-                    ForEach(family.targets) { target in
-                        NavigationLink { CacheDetailView(target: target) } label: {
-                            Label("\(target.mode) · \(target.width) × \(target.height)", systemImage: target.mode == "深色" ? "moon.fill" : "sun.max.fill")
-                        }.disabled(model.busy)
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        ForEach(family.targets) { target in
+                            NavigationLink { CacheDetailView(target: target) } label: {
+                                VStack(spacing: 5) {
+                                    ApplyTargetPreview(target: target)
+                                        .overlay(alignment: .topTrailing) {
+                                            if target.width > 0 && target.height > 0 {
+                                                Text("\(target.width) × \(target.height)")
+                                                    .font(.caption2.weight(.medium))
+                                                    .foregroundStyle(.white)
+                                                    .padding(.horizontal, 6)
+                                                    .padding(.vertical, 3)
+                                                    .background(.black.opacity(0.72), in: Capsule())
+                                                    .padding(5)
+                                            }
+                                        }
+                                    Text(target.mode)
+                                        .font(.caption.weight(.medium))
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(model.busy)
+                        }
                     }
                 }
             }
