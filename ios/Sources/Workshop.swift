@@ -838,33 +838,17 @@ struct HistoryView: View {
 }
 
 struct BackupsView: View {
-    private enum CacheAction: String, CaseIterable {
-        case restore = "恢复默认壁纸"
-        case clear = "清空壁纸缓存"
-    }
-
     @EnvironmentObject var model: WorkshopModel
-    @State private var cacheAction: CacheAction = .restore
     @State private var chosen: [String: Any]?
     @State private var confirming = false
     @State private var clearing = false
     var body: some View {
         List {
             Section {
-                Picker("壁纸缓存操作", selection: $cacheAction) {
-                    ForEach(CacheAction.allCases, id: \.self) { action in
-                        Text(action.rawValue).tag(action)
-                    }
-                }.pickerStyle(.segmented)
-                if cacheAction == .restore {
-                    Button("恢复 CarPlay 默认壁纸") { model.restoreDefaultWallpapers() }.disabled(model.busy)
-                    Text("下载默认壁纸并恢复六组深浅壁纸。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                } else {
-                    Button("清空壁纸缓存", role: .destructive) { clearing = true }.disabled(model.busy)
-                    Text("只删除 Library/Caches/MappedImageCache/com.apple.CarPlayApp.wallpaper-images 中的壁纸文件。清空后，请在车机的壁纸设置中依次设定 6 张内置壁纸，让系统重新生成缓存。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
+                Button("恢复默认壁纸") { model.restoreDefaultWallpapers() }.disabled(model.busy)
+                Button("清空壁纸缓存", role: .destructive) { clearing = true }.disabled(model.busy)
+            } footer: {
+                Text("恢复默认壁纸会下载六组深色和浅色内置壁纸，并写回车机缓存。已有壁纸沿用原来的文件名；目录被系统清空时，沿用 Library/Caches 里留下的版本号。\n\n清空壁纸缓存只删除 wallpaper-images 里的壁纸文件，删除前会先解锁。清空成功后 24 小时内，打开 App 不会自动写回壁纸。请到车机壁纸设置里依次设定 6 张内置壁纸，让系统重新生成缓存。")
             }
             if model.busy { ProgressView(model.message) } else { Text(model.message).font(.footnote) }
             Section("应用前备份") {
