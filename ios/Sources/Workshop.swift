@@ -443,7 +443,7 @@ final class WorkshopModel: ObservableObject {
         guard !busy else { return }
         guard hasAccessBackend else { message = accessPreparationMessage; return }
         message = "正在清空壁纸缓存…"
-        work({ CCEngine.clearWallpaperImages() }) { result in
+        work({ CCEngine.clearWallpaperImages() as? [String: Any] ?? [:] }) { result in
             self.message = result["message"] as? String ?? "清空壁纸缓存失败"
             self.targets = []
             self.makeReport()
