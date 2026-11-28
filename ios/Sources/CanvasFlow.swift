@@ -58,6 +58,7 @@ struct CanvasHomeView: View {
             NavigationStack {
                 ComposeWallpaperView(
                     galleryImport: $galleryImport,
+                    isVisible: tab == .wallpaper,
                     openGallery: { tab = .gallery },
                     openShared: {
                         gallerySource = .share

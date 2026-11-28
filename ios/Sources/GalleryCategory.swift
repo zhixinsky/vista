@@ -71,28 +71,6 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
         return items
     }
 
-    /// Preview files for lists already saved. Does not request the lists again.
-    static func preloadImages() async {
-        for item in SharedWallpaper.saved {
-            _ = await CatalogLibrary.cachedImage(item.previewURL)
-        }
-        for entry in savedSeriesHomeEntries(includeHidden: false) {
-            guard let cover = entry.cover else { continue }
-            _ = await CatalogLibrary.cachedImage(cover)
-        }
-        for category in cached where category.published != 0 && category.hidden == 0 {
-            switch category.kind {
-            case "share", "bing", "commons", "buick", "series":
-                continue
-            default:
-                let items = (try? await assets(category.id)) ?? savedAssets(category.id)
-                for item in items {
-                    _ = await CatalogLibrary.thumbnail(item)
-                }
-            }
-        }
-    }
-
     static func fetch() async -> [Self]? {
         guard ServiceGate.enabled else { return nil }
         var request = URLRequest(url: ServiceGate.join("v1/gallery/categories"), timeoutInterval: 12)
@@ -131,19 +109,22 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
         return feed.items
     }
 
+    static func seriesParents(in categories: [Self], includeHidden: Bool) -> [Self] {
+        categories.filter { $0.published != 0 && $0.kind == "series" && ($0.hidden == 0 || includeHidden) }
+    }
+
     static func savedSeriesHomeEntries(includeHidden: Bool) -> [SeriesHomeEntry] {
-        cached.filter { $0.published != 0 && $0.kind == "series" }.flatMap { parent in
+        seriesParents(in: cached, includeHidden: includeHidden).flatMap { parent in
             savedSeriesGroups(parent.id)
                 .filter { $0.hidden == 0 || includeHidden }
                 .map { SeriesHomeEntry(group: $0, parent: parent) }
         }
     }
 
-    static func fetchSeriesHomeEntries(includeHidden: Bool) async -> [SeriesHomeEntry] {
-        guard let categories = await fetch() else { return savedSeriesHomeEntries(includeHidden: includeHidden) }
-        let parents = categories.filter { $0.published != 0 && $0.kind == "series" }
+    static func fetchSeriesHomeEntries(parents: [Self], includeHidden: Bool) async -> [SeriesHomeEntry] {
         var entries: [SeriesHomeEntry] = []
-        for parent in parents where parent.hidden == 0 || includeHidden {
+        for parent in parents {
+            guard !Task.isCancelled else { break }
             guard let groups = await fetchSeriesGroups(parent.id) else { continue }
             for group in groups where group.hidden == 0 || includeHidden {
                 entries.append(SeriesHomeEntry(group: group, parent: parent))

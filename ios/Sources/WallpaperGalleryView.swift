@@ -390,10 +390,17 @@ struct GalleryImage: View {
             }
         }
         .task(id: url) {
-            guard let url else { return }
-            let loaded = await CatalogLibrary.cachedImage(url)
-            image = loaded ?? image
-            failed = loaded == nil && image == nil
+            image = url.flatMap(CatalogLibrary.savedImage)
+            failed = false
+            guard let url, image == nil else { return }
+            var loaded = await CatalogLibrary.cachedImage(url)
+            if loaded == nil {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                loaded = await CatalogLibrary.cachedImage(url)
+            }
+            guard !Task.isCancelled else { return }
+            image = loaded
+            failed = loaded == nil
         }
     }
 }

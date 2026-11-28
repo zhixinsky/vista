@@ -5,7 +5,9 @@ import Photos
 
 struct ComposeWallpaperView: View {
     @EnvironmentObject var model: WorkshopModel
+    @Environment(\.scenePhase) private var scenePhase
     @Binding var galleryImport: GalleryImport?
+    private let isVisible: Bool
     private let openGallery: (() -> Void)?
     private let openShared: (() -> Void)?
     private let openSeries: ((GalleryCategory) -> Void)?
@@ -26,6 +28,7 @@ struct ComposeWallpaperView: View {
     @State private var sharedBusy: String?
     @State private var sharedDownloading = false
     @State private var sharedComments: SharedWallpaper?
+    @State private var sharedRevision = 0
     @State private var seriesEntries = GalleryCategory.savedSeriesHomeEntries(includeHidden: false)
     @State private var seriesNote = ""
     @State private var seriesVisible = !GalleryCategory.savedSeriesHomeEntries(includeHidden: false).isEmpty
@@ -35,6 +38,7 @@ struct ComposeWallpaperView: View {
     @State private var previewing = false
     @State private var initialized = false
     @State private var sourcePixels: CGSize?
+    private var canLoadHome: Bool { isVisible && scenePhase == .active }
     private var photo: MakerPhoto? { photos.indices.contains(current) ? photos[current] : nil }
     private var outputSize: CGSize {
         if let crop = photo?.adjustment.pixelCrop { return crop.rect.size }
@@ -44,12 +48,14 @@ struct ComposeWallpaperView: View {
     }
     init(
         galleryImport: Binding<GalleryImport?> = .constant(nil),
+        isVisible: Bool = true,
         openGallery: (() -> Void)? = nil,
         openShared: (() -> Void)? = nil,
         openSeries: ((GalleryCategory) -> Void)? = nil,
         openSeriesGroup: ((GalleryCategory, SeriesHomeEntry) -> Void)? = nil
     ) {
         _galleryImport = galleryImport
+        self.isVisible = isVisible
         self.openGallery = openGallery
         self.openShared = openShared
         self.openSeries = openSeries
@@ -234,9 +240,9 @@ struct ComposeWallpaperView: View {
                         if !seriesNote.isEmpty {
                             Text(seriesNote).font(.caption).foregroundStyle(.secondary)
                         }
-                        if seriesEntries.isEmpty {
+                        if seriesEntries.isEmpty && seriesNote.isEmpty {
                             Text("正在加载系列…").font(.caption).foregroundStyle(.secondary)
-                        } else {
+                        } else if !seriesEntries.isEmpty {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 12) {
                                     ForEach(seriesEntries) { item in
@@ -268,12 +274,14 @@ struct ComposeWallpaperView: View {
         }.background(Color(uiColor: .systemGroupedBackground)).tint(CanvasTheme.accent)
             .navigationTitle("壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .onAppear { initialize() }
-            .task { await loadShared() }
-            .task { await loadSeries() }
-            .onChange(of: model.galleryHomeTick) { _, _ in
-                Task { await loadShared(); await loadSeries() }
+            .task(id: canLoadHome ? sharedRevision : nil) {
+                guard canLoadHome else { return }
+                await loadShared()
             }
-            .onChange(of: model.photoDownloadUnlocked) { _, _ in Task { await loadSeries() } }
+            .task(id: canLoadHome ? model.photoDownloadUnlocked : nil) {
+                guard canLoadHome else { return }
+                await loadSeries(includeHidden: model.photoDownloadUnlocked)
+            }
             .alert("已保存到相册", isPresented: $savedToPhotos) { Button("好", role: .cancel) {} }
             .task(id: galleryImport?.id) { await importGallerySelection() }
             .task(id: selection) { await importSelection() }
@@ -293,7 +301,7 @@ struct ComposeWallpaperView: View {
             .sheet(item: $shareCollection) { collection in
                 ShareWallpaperForm(collection: collection)
             }
-            .sheet(item: $sharedComments, onDismiss: { Task { await loadShared() } }) { item in
+            .sheet(item: $sharedComments, onDismiss: { sharedRevision += 1 }) { item in
                 ShareCommentsView(item: item)
             }
     }
@@ -369,18 +377,20 @@ struct ComposeWallpaperView: View {
         sharedNote = remote.isEmpty ? "还没有人精选壁纸。" : ""
     }
 
-    private func loadSeries() async {
-        let categories = await GalleryCategory.fetch() ?? GalleryCategory.cached
-        let hasCategory = categories.contains { $0.kind == "series" && $0.published != 0 }
-        guard ServiceGate.enabled, hasCategory else {
+    private func loadSeries(includeHidden: Bool) async {
+        guard ServiceGate.enabled else {
             seriesVisible = false
             seriesEntries = []
             seriesNote = ""
             return
         }
-        seriesVisible = true
-        let entries = await GalleryCategory.fetchSeriesHomeEntries(includeHidden: model.photoDownloadUnlocked)
+        let categories = await GalleryCategory.fetch() ?? GalleryCategory.cached
+        guard !Task.isCancelled else { return }
+        let parents = GalleryCategory.seriesParents(in: categories, includeHidden: includeHidden)
+        let entries = await GalleryCategory.fetchSeriesHomeEntries(parents: parents, includeHidden: includeHidden)
+        guard !Task.isCancelled else { return }
         seriesEntries = entries
+        seriesVisible = !parents.isEmpty
         seriesNote = entries.isEmpty ? "还没有系列壁纸。" : ""
     }
 
@@ -389,7 +399,7 @@ struct ComposeWallpaperView: View {
             openSeries?(parent)
             return
         }
-        if let parent = GalleryCategory.cached.first(where: { $0.kind == "series" && $0.published != 0 }) {
+        if let parent = GalleryCategory.seriesParents(in: GalleryCategory.cached, includeHidden: model.photoDownloadUnlocked).first {
             openSeries?(parent)
         }
     }
