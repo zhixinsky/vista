@@ -1161,4 +1161,11 @@ private struct SupportedVersionsView: View {
         guard !loading else { return }
         loading = true
         failed = false
-        defer { loading 
+        defer { loading = false }
+        do {
+            let feed = try await ServiceClient.shared.compatibility()
+            versions = feed.versions ?? Array(Set(feed.items.map(\.system))).sorted(by: >)
+        }
+        catch { failed = true }
+    }
+}
