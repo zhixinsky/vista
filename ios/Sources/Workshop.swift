@@ -1497,4 +1497,15 @@ private enum NetworkCheck {
                 finish(PathFacts(
                     status: path.status == .satisfied ? "可用" : "不可用",
                     interface: interface,
+                    expensive: path.isExpensive,
+                    constrained: path.isConstrained
+                ))
+            }
+            monitor.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + 2) {
+                finish(PathFacts(status: "未知", interface: "未知", expensive: false, constrained: false))
+            }
+        }
+    }
+}
          
