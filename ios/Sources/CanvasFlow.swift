@@ -93,10 +93,7 @@ struct CanvasHomeView: View {
                 .tabItem { Label("设置", systemImage: "gearshape") }.tag(Tab.settings)
         }
         .tint(CanvasTheme.accent)
-        .task {
-            if !guideSeen { guide = true }
-            await GalleryCategory.preload()
-        }
+        .task { if !guideSeen { guide = true } }
         .sheet(isPresented: $guide, onDismiss: { guideSeen = true }) { CanvasGuideView() }
     }
 }

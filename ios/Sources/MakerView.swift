@@ -270,6 +270,9 @@ struct ComposeWallpaperView: View {
             .onAppear { initialize() }
             .task { await loadShared() }
             .task { await loadSeries() }
+            .onChange(of: model.galleryHomeTick) { _, _ in
+                Task { await loadShared(); await loadSeries() }
+            }
             .onChange(of: model.photoDownloadUnlocked) { _, _ in Task { await loadSeries() } }
             .alert("已保存到相册", isPresented: $savedToPhotos) { Button("好", role: .cancel) {} }
             .task(id: galleryImport?.id) { await importGallerySelection() }

@@ -18,6 +18,7 @@ struct CarVistaApp: App {
                     model.maintainCacheSilently()
                     await ServiceClient.shared.startup()
                     await updates.check(automatically: true)
+                    await model.loadGalleryForHome()
                 }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
@@ -89,6 +90,15 @@ final class WorkshopModel: ObservableObject {
     @Published var networkCopy = ""
     @Published var generationProgress = 0.0
     @Published var photoDownloadUnlocked = false
+    @Published var galleryHomeTick = 0
+
+    func loadGalleryForHome() async {
+        _ = await GalleryCategory.fetch()
+        _ = await ServiceClient.shared.fetchShares(sort: .likes)
+        _ = await GalleryCategory.fetchSeriesHomeEntries(includeHidden: photoDownloadUnlocked)
+        galleryHomeTick += 1
+        await GalleryCategory.preloadImages()
+    }
     @Published var lastDetectedWallpaperSize: CGSize?
     @Published private(set) var lastScanSummary: String?
     @Published private(set) var lastApplySummary: String?
@@ -1487,14 +1497,4 @@ private enum NetworkCheck {
                 finish(PathFacts(
                     status: path.status == .satisfied ? "可用" : "不可用",
                     interface: interface,
-                    expensive: path.isExpensive,
-                    constrained: path.isConstrained
-                ))
-            }
-            monitor.start(queue: queue)
-            queue.asyncAfter(deadline: .now() + 2) {
-                finish(PathFacts(status: "未知", interface: "未知", expensive: false, constrained: false))
-            }
-        }
-    }
-}
+         

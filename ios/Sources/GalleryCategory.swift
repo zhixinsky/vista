@@ -71,25 +71,24 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
         return items
     }
 
-    /// Downloads gallery lists and preview images before the gallery tab is opened.
-    static func preload() async {
-        let categories = await fetch() ?? cached
-        let visible = categories.filter { $0.published != 0 && $0.hidden == 0 }
-        for category in visible {
+    /// Preview files for lists already saved. Does not request the lists again.
+    static func preloadImages() async {
+        for item in SharedWallpaper.saved {
+            _ = await CatalogLibrary.cachedImage(item.previewURL)
+        }
+        for entry in savedSeriesHomeEntries(includeHidden: false) {
+            guard let cover = entry.cover else { continue }
+            _ = await CatalogLibrary.cachedImage(cover)
+        }
+        for category in cached where category.published != 0 && category.hidden == 0 {
             switch category.kind {
-            case "bing", "commons":
+            case "share", "bing", "commons", "buick", "series":
                 continue
-            case "share":
-                guard let items = await ServiceClient.shared.fetchShares(sort: .likes) else { continue }
-                for item in items { _ = await CatalogLibrary.cachedImage(item.previewURL) }
-            case "series":
-                for entry in await fetchSeriesHomeEntries(includeHidden: false) {
-                    guard let cover = entry.cover else { continue }
-                    _ = await CatalogLibrary.cachedImage(cover)
-                }
             default:
-                guard let items = try? await assets(category.id) else { continue }
-                for item in items { _ = await CatalogLibrary.thumbnail(item) }
+                let items = (try? await assets(category.id)) ?? savedAssets(category.id)
+                for item in items {
+                    _ = await CatalogLibrary.thumbnail(item)
+                }
             }
         }
     }
