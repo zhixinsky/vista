@@ -24,6 +24,7 @@ static void CCProgress(int64_t done, int64_t total, BOOL finished) {
 }
 static NSDictionary *CCFail(NSString *text) { return @{@"ok": @NO, @"message": text ?: @"操作失败"}; }
 static NSString *const CCSuppressWallpaperFillKey = @"CarVistaSuppressWallpaperFillUntil";
+static NSString *const CCWallpaperCacheVersionKey = @"CarVistaWallpaperCacheVersion";
 static BOOL CCWallpaperFillSuppressed(void) {
     return [NSUserDefaults.standardUserDefaults doubleForKey:CCSuppressWallpaperFillKey] > [NSDate date].timeIntervalSince1970;
 }
@@ -433,6 +434,43 @@ static NSString *CCWallpaperSlot(NSString *path) {
     // Preserve colour + appearance; the final numeric component is a system version.
     return [name substringToIndex:[name rangeOfString:@"-" options:NSBackwardsSearch].location];
 }
+// Names already in the image cache for one colour and appearance, such as
+// CARWallpaperBlue-Dark-14.cpbitmap and CARWallpaperBlue-Dark-16.cpbitmap.
+static NSArray<NSString *> *CCWallpaperSlotNames(NSString *root, NSString *key) {
+    NSString *prefix = [NSString stringWithFormat:@"CARWallpaper%@-", key];
+    NSMutableArray *names = NSMutableArray.new;
+    for (NSString *name in wq_list(CCWallpaperDirectory(root), NULL)) {
+        if (!CCWallpaperName(name) || ![name hasPrefix:prefix]) continue;
+        struct stat st;
+        NSString *path = [CCWallpaperDirectory(root) stringByAppendingPathComponent:name];
+        if (wq_stat(path, &st) && S_ISREG(st.st_mode) && !S_ISLNK(st.st_mode)) [names addObject:name];
+    }
+    return names;
+}
+static void CCCollectWallpaperVersions(NSString *directory, NSMutableSet *versions) {
+    for (NSString *name in wq_list(directory, NULL) ?: @[]) {
+        if (!CCWallpaperName(name)) continue;
+        NSString *suffix = [[name stringByDeletingPathExtension] componentsSeparatedByString:@"-"].lastObject;
+        NSInteger value = suffix.integerValue;
+        if (value > 0) [versions addObject:@(value)];
+    }
+}
+// Suffix CarPlay already uses in this cache. Not the phone's iOS version, and not a fixed 14 or 16.
+// After iOS clears wallpaper-images, the old files sit directly in Library/Caches and still carry the suffix.
+// A single suffix is remembered for the next time both directories are empty.
+// Nil when the visible files mix several suffixes, or nothing was ever seen.
+static NSNumber *CCWallpaperCacheVersion(NSString *root) {
+    NSMutableSet *versions = NSMutableSet.new;
+    CCCollectWallpaperVersions(CCWallpaperDirectory(root), versions);
+    if (!versions.count) CCCollectWallpaperVersions([CCCanonical(root) stringByAppendingPathComponent:@"Library/Caches"], versions);
+    if (versions.count == 1) {
+        [NSUserDefaults.standardUserDefaults setInteger:[versions.anyObject integerValue] forKey:CCWallpaperCacheVersionKey];
+        return versions.anyObject;
+    }
+    if (versions.count > 1) return nil;
+    NSInteger remembered = [NSUserDefaults.standardUserDefaults integerForKey:CCWallpaperCacheVersionKey];
+    return remembered > 0 ? @(remembered) : nil;
+}
 static BOOL CCKeepData(NSString *root, NSString *path, NSData *data) {
     path = CCCanonical(path);
     if (!root.length || ![wq_container_label(root) isEqualToString:CCIdentifier] ||
@@ -705,7 +743,9 @@ static NSString *CCSnapshotRoot(void) {
         NSMutableArray *matches = NSMutableArray.new;
         for (NSString *name in existingNames) if (CCWallpaperName(name) && [name hasPrefix:prefix]) [matches addObject:name];
         if (matches.count > 1) return CCFail([NSString stringWithFormat:@"%@ 存在多个缓存版本，请先检查。", key]);
-        NSString *name = matches.firstObject ?: [NSString stringWithFormat:@"CARWallpaper%@-16.cpbitmap", key];
+        NSNumber *version = matches.count ? nil : CCWallpaperCacheVersion(root);
+        if (!matches.count && !version) return CCFail(@"还不知道这台设备的壁纸缓存版本，请先在车机壁纸设置中设定一张内置壁纸。");
+        NSString *name = matches.firstObject ?: [NSString stringWithFormat:@"CARWallpaper%@-%@.cpbitmap", key, version];
         NSString *target = [directory stringByAppendingPathComponent:name];
         NSData *data = [NSData dataWithContentsOfFile:source];
         encoded[target] = data;
@@ -1015,7 +1055,16 @@ static void CCSaveWallpaperEvidence(NSDictionary *record) {
             NSDictionary *choice = [self recoverySource:data loose:loose[@"data"]];
             data = choice[@"data"];
             if ([choice[@"source"] isEqual:@"loose"]) sources[key] = loose;
-            if (!path) path = [CCWallpaperDirectory(root) stringByAppendingPathComponent:[NSString stringWithFormat:@"CARWallpaper%@-16.cpbitmap", key]];
+            // A scan can miss a locked file. Trust the directory listing so a
+            // present -14 is not joined by a newly created -16.
+            NSArray *onDisk = CCWallpaperSlotNames(root, key);
+            if (onDisk.count > 1) return CCFail([NSString stringWithFormat:@"%@ 同时有 %lu 个版本，未自动写入。", key, (unsigned long)onDisk.count]);
+            if (onDisk.count == 1) path = [CCWallpaperDirectory(root) stringByAppendingPathComponent:onDisk.firstObject];
+            else if (!path) {
+                NSNumber *version = CCWallpaperCacheVersion(root);
+                if (!version) return CCFail(@"目录已被清空，且还没有记住缓存版本，未自动写入。");
+                path = [CCWallpaperDirectory(root) stringByAppendingPathComponent:[NSString stringWithFormat:@"CARWallpaper%@-%@.cpbitmap", key, version]];
+            }
             if (!data) {
                 if (!defaults.count) return @{@"ok":@NO, @"needsDefaults":@YES};
                 UIImage *image = [UIImage imageWithData:defaults[key]];
@@ -1217,9 +1266,4 @@ static void CCAdoptExistingOriginals(void) {
         }
     }
     if (removed == 0 && failed > 0) return CCFail(@"壁纸缓存未能清空，请稍后重试。");
-    [NSUserDefaults.standardUserDefaults setDouble:[NSDate date].timeIntervalSince1970 + 24 * 60 * 60 forKey:CCSuppressWallpaperFillKey];
-    return @{@"ok":@YES, @"removed":@(removed),
-        @"message":[NSString stringWithFormat:@"已清空 %lu 个壁纸缓存文件。请在车机的壁纸设置中重新选择内置壁纸。", (unsigned long)removed]};
-}
-
-@end
+    [NSUserDefaults.standardUserDefaults setDouble:[NSDate date].timeIntervalSince1970 + 24 * 60 * 60 forKey:CCSuppressWa
