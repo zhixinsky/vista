@@ -31,10 +31,6 @@ extension WorkshopModel {
     }
 }
 
-enum WallpaperRoute: Hashable {
-    case history, cache
-}
-
 struct GalleryPick {
     var data: Data
     var source: String
@@ -55,12 +51,11 @@ struct CanvasHomeView: View {
     @State private var tab = Tab.wallpaper
     @State private var gallerySource = WallpaperGalleryView.Source.stock
     @State private var gallerySeriesGroupID: String?
-    @State private var wallpaperPath: [WallpaperRoute] = []
     @State private var galleryImport: GalleryImport?
 
     var body: some View {
         TabView(selection: $tab) {
-            NavigationStack(path: $wallpaperPath) {
+            NavigationStack {
                 ComposeWallpaperView(
                     galleryImport: $galleryImport,
                     openGallery: { tab = .gallery },
@@ -79,20 +74,13 @@ struct CanvasHomeView: View {
                         gallerySeriesGroupID = entry.id
                         tab = .gallery
                     }
-                ) { wallpaperPath.append($0) }
-                    .navigationDestination(for: WallpaperRoute.self) { destination in
-                        switch destination {
-                        case .history: CanvasHistoryView()
-                        case .cache: CacheBrowserView()
-                        }
-                    }
+                )
             }
             .tabItem { Label("壁纸", systemImage: "photo.on.rectangle") }.tag(Tab.wallpaper)
 
             NavigationStack {
                 WallpaperGalleryView(use: { pick in
                     galleryImport = GalleryImport(data: pick.data, source: pick.source, assetID: pick.assetID)
-                    wallpaperPath.removeAll()
                     tab = .wallpaper
                 }, source: $gallerySource, focusSeriesGroupID: $gallerySeriesGroupID)
             }
@@ -135,6 +123,7 @@ struct CanvasHistoryView: View {
     @State private var codeLoading = false
     @State private var codePreview: UIImage?
     @State private var codeStatusRevision = 0
+    @State private var showCache = false
     private func hasActiveCode(_ id: UUID) -> Bool {
         _ = codeStatusRevision
         let key = "CarVistaWallpaperCode.\(id.uuidString)"
@@ -223,10 +212,14 @@ struct CanvasHistoryView: View {
             .navigationTitle("我的壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
             .toolbar {
                 Menu {
+                    Button { showCache = true } label: { Label("壁纸缓存", systemImage: "folder") }
+                        .accessibilityIdentifier("wallpaper.cache")
                     Button { shareCodeInput = ""; enteringCode = true } label: { Label("输入分享码", systemImage: "text.badge.plus") }
                     Button(role: .destructive) { clear = true } label: { Label("全部清空", systemImage: "trash") }.disabled(model.history.isEmpty || model.busy)
                 } label: { Label("壁纸工具", systemImage: "ellipsis.circle") }
+                    .accessibilityIdentifier("history.tools")
             }
+            .navigationDestination(isPresented: $showCache) { CacheBrowserView() }
             .alert("输入分享码", isPresented: $enteringCode) {
                 TextField("粘贴分享码", text: $shareCodeInput).textInputAutocapitalization(.characters).autocorrectionDisabled()
                 Button("查询") { lookupCode() }
@@ -1000,7 +993,7 @@ struct CanvasGuideView: View {
     private let steps = [
         ("生成车机壁纸缓存", "停车后，在车机 CarPlay 的“设置 → 壁纸”中切换几张内置图片壁纸。不同系统的排列可能不同。"),
         ("选择照片", "在“壁纸”里选相册照片，或点“精选壁纸”查看大家共享的壁纸。需要裁剪时点“裁剪”。"),
-        ("选择目标并应用", "点“应用到 CarPlay”即可生成文件并选择替换目标，原文件会自动备份。我的壁纸在底部菜单，壁纸缓存位于“壁纸”右上角。"),
+        ("选择目标并应用", "点“应用到 CarPlay”即可生成文件并选择替换目标，原文件会自动备份。我的壁纸在底部菜单，壁纸缓存在“我的壁纸”右上角菜单里。"),
         ("重启 CarPlay，让壁纸生效", "替换后点“重启 CarPlay”，尝试重载系统界面。返回桌面后重新连接车机，确认新壁纸是否生效。若仍显示旧图，请手动重启 iPhone。需要还原时，可在设置中打开“备份与恢复”。")]
     var body: some View {
         NavigationStack {

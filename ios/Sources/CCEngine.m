@@ -1031,20 +1031,29 @@ static void CCSaveWallpaperEvidence(NSDictionary *record) {
         NSString *name = file[@"name"];
         if ([name isKindOfClass:NSString.class]) [present addObject:name];
     }
-    // A complete set is this user's colours. Remember it and do not write over it.
+    // A complete set is this user's colours. Remember it and do not overwrite those files.
     if (CCValidSlotNames(present)) {
         CCKeepWallpapers(root, files);
         CCRememberSlotNames(root, present);
         return @{@"ok":@YES, @"skipped":@YES, @"recorded":@YES};
     }
-    if (present.count) return @{@"ok":@YES, @"skipped":@YES};
     if (CCWallpaperFillSuppressed()) return @{@"ok":@YES, @"skipped":@YES, @"suppressed":@YES};
     NSArray<NSString *> *names = CCRememberedSlotNames(root);
     if (!names) return @{@"ok":@YES, @"skipped":@YES};
     NSString *directory = CCWallpaperDirectory(root);
+    NSMutableSet *presentNames = [NSMutableSet setWithArray:present];
+    NSMutableSet *presentSlots = NSMutableSet.new;
+    for (NSString *name in present) {
+        NSString *slot = CCWallpaperSlot(name);
+        if (slot) [presentSlots addObject:slot];
+    }
     NSDictionary *records = CCRepairRecords();
     NSMutableDictionary *prepared = NSMutableDictionary.new;
     for (NSString *name in names) {
+        if ([presentNames containsObject:name]) continue;
+        NSString *slot = CCWallpaperSlot(name);
+        // A different filename for this slot is already there. Do not add a second one.
+        if (slot && [presentSlots containsObject:slot]) continue;
         NSString *path = [directory stringByAppendingPathComponent:name];
         NSData *data = nil;
         for (NSString *saved in records) {
@@ -1054,9 +1063,10 @@ static void CCSaveWallpaperEvidence(NSDictionary *record) {
                 if (data) break;
             }
         }
-        if (!data) return @{@"ok":@YES, @"skipped":@YES};
+        if (!data) continue;
         prepared[path] = data;
     }
+    if (!prepared.count) return @{@"ok":@YES, @"skipped":@YES};
     NSString *error = nil;
     if (!CCEnsureWallpaperDirectory(root, &error)) return CCFail(error ?: @"无法重建壁纸缓存目录。");
     for (NSString *path in prepared) {

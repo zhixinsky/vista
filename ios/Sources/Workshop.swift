@@ -839,7 +839,7 @@ struct BackupsView: View {
             Section {
                 Button("清空壁纸缓存", role: .destructive) { clearing = true }.disabled(model.busy)
             } footer: {
-                Text("清空壁纸缓存只删除 wallpaper-images 里的壁纸文件，删除前会先解锁。清空后 24 小时内不会自动写回。自动写回只在目录被系统清空、且已经记下这台设备的 12 个文件名时，按这些文件名补回。请到车机壁纸设置里依次设定 6 张内置壁纸，让系统重新生成缓存。")
+                Text("清空后，请到车机依次设定 6 张壁纸，让系统重新生成缓存。")
             }
             if model.busy { ProgressView(model.message) } else { Text(model.message).font(.footnote) }
             Section("应用前备份") {

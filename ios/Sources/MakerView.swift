@@ -6,12 +6,10 @@ import Photos
 struct ComposeWallpaperView: View {
     @EnvironmentObject var model: WorkshopModel
     @Binding var galleryImport: GalleryImport?
-    private let openTool: ((WallpaperRoute) -> Void)?
     private let openGallery: (() -> Void)?
     private let openShared: (() -> Void)?
     private let openSeries: ((GalleryCategory) -> Void)?
     private let openSeriesGroup: ((GalleryCategory, SeriesHomeEntry) -> Void)?
-    @State private var tool: WallpaperRoute?
     @State private var photos: [MakerPhoto] = []
     @State private var selection: PhotosPickerItem?
     @State private var current = 0
@@ -49,11 +47,9 @@ struct ComposeWallpaperView: View {
         openGallery: (() -> Void)? = nil,
         openShared: (() -> Void)? = nil,
         openSeries: ((GalleryCategory) -> Void)? = nil,
-        openSeriesGroup: ((GalleryCategory, SeriesHomeEntry) -> Void)? = nil,
-        openTool: ((WallpaperRoute) -> Void)? = nil
+        openSeriesGroup: ((GalleryCategory, SeriesHomeEntry) -> Void)? = nil
     ) {
         _galleryImport = galleryImport
-        self.openTool = openTool
         self.openGallery = openGallery
         self.openShared = openShared
         self.openSeries = openSeries
@@ -271,22 +267,6 @@ struct ComposeWallpaperView: View {
             }.padding(20).frame(maxWidth: 680).frame(maxWidth: .infinity)
         }.background(Color(uiColor: .systemGroupedBackground)).tint(CanvasTheme.accent)
             .navigationTitle("壁纸").navigationBarTitleDisplayMode(.inline).toolbar(.visible, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Menu {
-                        Button { showTool(.history) } label: { Label("我的壁纸", systemImage: "photo.stack") }
-                        Button { showTool(.cache) } label: { Label("壁纸缓存", systemImage: "folder") }
-                    } label: {
-                        Label("壁纸工具", systemImage: "ellipsis.circle")
-                    }.accessibilityIdentifier("wallpaper.tools")
-                }
-            }
-            .navigationDestination(item: $tool) { destination in
-                switch destination {
-                case .history: CanvasHistoryView()
-                case .cache: CacheBrowserView()
-                }
-            }
             .onAppear { initialize() }
             .task { await loadShared() }
             .task { await loadSeries() }
@@ -343,10 +323,6 @@ struct ComposeWallpaperView: View {
             }
         }
     }
-    private func showTool(_ destination: WallpaperRoute) {
-        if let openTool { openTool(destination) } else { tool = destination }
-    }
-
     private func importGallerySelection() async {
         guard let request = galleryImport else { return }
         while locked {
