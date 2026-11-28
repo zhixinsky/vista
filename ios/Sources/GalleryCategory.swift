@@ -71,6 +71,20 @@ struct GalleryCategory: Codable, Identifiable, Hashable {
         return items
     }
 
+    /// Fills the on-disk gallery cache without presenting a loading state.
+    static func preload() async {
+        let categories = await fetch() ?? cached
+        let visible = categories.filter { $0.published != 0 && $0.hidden == 0 }
+        for category in visible {
+            switch category.kind {
+            case "share", "bing", "commons", "buick", "series":
+                continue
+            default:
+                _ = try? await assets(category.id)
+            }
+        }
+    }
+
     static func fetch() async -> [Self]? {
         guard ServiceGate.enabled else { return nil }
         var request = URLRequest(url: ServiceGate.join("v1/gallery/categories"), timeoutInterval: 12)
